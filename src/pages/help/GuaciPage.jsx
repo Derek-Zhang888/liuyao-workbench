@@ -41,7 +41,8 @@ export default function GuaciPage() {
 
   // 选中爻索引（0-6，6=用九/用六）；无效参数回退 null
   const selIdx = /^\d+$/.test(lineRaw) ? Number(lineRaw) : null
-  const selEntry = gua && yc && selIdx !== null ? yaoEntry(gua, yc, selIdx) : null
+  const selIdxInRange = selIdx !== null && selIdx >= 0 && selIdx <= 6
+  const selEntry = gua && yc && selIdxInRange ? yaoEntry(gua, yc, selIdx) : null
   const selIdxValid = selEntry ? selIdx : null
 
   /* ============ 列表模式（无 ?gua=） ============ */

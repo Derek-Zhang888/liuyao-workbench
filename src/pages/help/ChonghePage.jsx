@@ -15,6 +15,19 @@ const CX = 160
 const CY = 160
 const R = 118
 
+/* ============ 六亲生克图（五节点圆环） ============ */
+const QCX = 160
+const QCY = 168
+const QR = 100
+/** 相生环顺序：父母生兄弟 → 兄弟生子孙 → 子孙生妻财 → 妻财生官鬼 → 官鬼生父母 */
+const LIUQIN_ORDER = ['父母', '兄弟', '子孙', '妻财', '官鬼']
+
+/** 六亲节点在圆环上的坐标（-90° 起顺时针 72° 间隔） */
+function qpos(i) {
+  const rad = ((-90 + i * 72) * Math.PI) / 180
+  return { x: QCX + QR * Math.cos(rad), y: QCY + QR * Math.sin(rad) }
+}
+
 /** 地支在圆环上的坐标（子居正北，顺时针：子丑寅卯辰巳午未申酉戌亥） */
 function pos(i) {
   const rad = ((-90 + i * 30) * Math.PI) / 180
@@ -187,6 +200,83 @@ export default function ChonghePage() {
           <span style={{ color: WUXING_COLOR['木'] }}>木</span>
           <span className="ml-3 text-xs text-muted">相克</span>
         </div>
+      </section>
+
+      {/* 六亲生克图 */}
+      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+        <h3 className="text-sm font-medium text-gold">六亲生克</h3>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">
+          金色箭头为相生（父母生兄弟 → 兄弟生子孙 → 子孙生妻财 → 妻财生官鬼 → 官鬼生父母）；
+          红色箭头为相克（父母克子孙 → 子孙克官鬼 → 官鬼克兄弟 → 兄弟克妻财 → 妻财克父母）。
+        </p>
+        <svg viewBox="0 0 320 320" className="mx-auto h-auto w-full max-w-md" role="img" aria-label="六亲生克关系图">
+          <defs>
+            <marker id="arrowGold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 Z" fill="var(--gold)" />
+            </marker>
+            <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 Z" fill="var(--red)" />
+            </marker>
+          </defs>
+          {/* 相生弧线（顺时针 相邻） */}
+          {LIUQIN_ORDER.map((q, i) => {
+            const n = (i + 1) % LIUQIN_ORDER.length
+            const a = qpos(i)
+            const b = qpos(n)
+            // 二次贝塞尔：中点沿径向外推，弧线鼓向外侧
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+            const rr = Math.hypot(mid.x - QCX, mid.y - QCY)
+            const c = { x: QCX + (mid.x - QCX) * (1 + 24 / rr), y: QCY + (mid.y - QCY) * (1 + 24 / rr) }
+            return (
+              <path
+                key={`sheng-${q}`}
+                d={`M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`}
+                fill="none"
+                stroke="var(--gold)"
+                strokeWidth="1.5"
+                strokeOpacity="0.85"
+                markerEnd="url(#arrowGold)"
+              />
+            )
+          })}
+          {/* 相克连线（红色 隔一节点） */}
+          {LIUQIN_ORDER.map((q, i) => {
+            const n = (i + 2) % LIUQIN_ORDER.length
+            const a = qpos(i)
+            const b = qpos(n)
+            return (
+              <line
+                key={`ke-${q}`}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                stroke="var(--red)"
+                strokeWidth="1.5"
+                strokeOpacity="0.7"
+                markerEnd="url(#arrowRed)"
+              />
+            )
+          })}
+          {/* 六亲节点 */}
+          {LIUQIN_ORDER.map((q, i) => {
+            const p = qpos(i)
+            return (
+              <g key={q}>
+                <circle cx={p.x} cy={p.y} r={26} fill="var(--panel)" stroke="var(--border)" strokeWidth="1" />
+                <text x={p.x} y={p.y + 5} textAnchor="middle" fontSize="14" fill="var(--text)">
+                  {q}
+                </text>
+              </g>
+            )
+          })}
+          <text x={QCX} y={QCY - 4} textAnchor="middle" fontSize="12" fill="var(--muted)">
+            六亲
+          </text>
+          <text x={QCX} y={QCY + 12} textAnchor="middle" fontSize="10" fill="var(--muted)">
+            环上相邻相生 · 隔位相克
+          </text>
+        </svg>
       </section>
 
       {/* 关系表 */}
