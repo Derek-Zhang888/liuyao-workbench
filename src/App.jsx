@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { HashRouter, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import PaipanPage from './pages/PaipanPage.jsx'
 import GuashiLibPage from './pages/GuashiLibPage.jsx'
@@ -133,11 +133,26 @@ const MAIN_NAV = [
 function Shell() {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef(null)
 
   // 路由变化时收起手机版「更多」菜单
   useEffect(() => {
     setMoreOpen(false)
   }, [location])
+
+  // 点击「更多」菜单外部任意区域时收起（手机触摸场景）
+  useEffect(() => {
+    if (!moreOpen) return
+    const onDown = (e) => {
+      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('touchstart', onDown)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('touchstart', onDown)
+    }
+  }, [moreOpen])
 
   return (
     <div className="min-h-screen bg-bg text-text">
@@ -165,7 +180,7 @@ function Shell() {
           </NavLink>
 
           {/* 更多：辅助工具 ×5 + 回收站 */}
-          <div className="relative shrink-0">
+          <div className="relative shrink-0" ref={moreRef}>
             <button
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
