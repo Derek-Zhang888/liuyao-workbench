@@ -28,6 +28,17 @@ function qpos(i) {
   return { x: QCX + QR * Math.cos(rad), y: QCY + QR * Math.sin(rad) }
 }
 
+const NODE_R = 26
+
+/** 将节点圆环上的点收缩到圆盘边缘（终点落在圆盘外，箭头才可见） */
+function edgePoint(p) {
+  const dx = p.x - QCX
+  const dy = p.y - QCY
+  const d = Math.hypot(dx, dy) || 1
+  const r = NODE_R - 2
+  return { x: QCX + (dx / d) * r, y: QCY + (dy / d) * r }
+}
+
 /** 地支在圆环上的坐标（子居正北，顺时针：子丑寅卯辰巳午未申酉戌亥） */
 function pos(i) {
   const rad = ((-90 + i * 30) * Math.PI) / 180
@@ -221,8 +232,8 @@ export default function ChonghePage() {
           {/* 相生弧线（顺时针 相邻） */}
           {LIUQIN_ORDER.map((q, i) => {
             const n = (i + 1) % LIUQIN_ORDER.length
-            const a = qpos(i)
-            const b = qpos(n)
+            const a = edgePoint(qpos(i))
+            const b = edgePoint(qpos(n))
             // 二次贝塞尔：中点沿径向外推，弧线鼓向外侧
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
             const rr = Math.hypot(mid.x - QCX, mid.y - QCY)
@@ -242,8 +253,8 @@ export default function ChonghePage() {
           {/* 相克连线（红色 隔一节点） */}
           {LIUQIN_ORDER.map((q, i) => {
             const n = (i + 2) % LIUQIN_ORDER.length
-            const a = qpos(i)
-            const b = qpos(n)
+            const a = edgePoint(qpos(i))
+            const b = edgePoint(qpos(n))
             return (
               <line
                 key={`ke-${q}`}
