@@ -74,6 +74,7 @@ describe('ganzhi 干支历法', () => {
     expect(r.day).toBe(1);
     expect(r.isLeap).toBe(false);
     expect(r.ganzhiYear).toBe('庚辰'); // 测试版按公历年 2000
+    expect(r.ganzhiMonth).toBe('己丑'); // 庚年(公历年简化)五虎遁: 戊寅起, 腊月=己丑
     expect(r.ganzhiDay).toBe('甲子'); // 锚点日
     expect(r.xunkong).toEqual(['戌', '亥']); // 甲子旬空亡戌亥
     expect(r.yuejian).toBe('丑'); // 腊月=丑
@@ -110,12 +111,23 @@ describe('ganzhi 干支历法', () => {
     expect(toLunar(new Date(2026, 7, 4, 21, 30)).ganzhiHour).toBe('丁亥'); // 亥时(21-23)
     expect(toLunar(new Date(2026, 7, 4, 22, 30)).ganzhiHour).toBe('丁亥'); // 亥时(22-23)
     // 23:00 后子时换日，用次日(辛亥日)日干：丙辛戊子起 -> 戊子（6tail 双确认）
-    expect(toLunar(new Date(2026, 7, 4, 23, 30)).ganzhiHour).toBe('戊子');
+    const late = toLunar(new Date(2026, 7, 4, 23, 30));
+    expect(late.ganzhiHour).toBe('戊子'); // 时柱用次日子时天干
+    expect(late.ganzhiDay).toBe('庚戌'); // 日柱仍按公历日界，显示当日
   });
 
   test('超出 1900-2100 数据范围抛 RangeError', () => {
     expect(() => toLunar(new Date(1899, 11, 31))).toThrow(RangeError);
     expect(() => toLunar(new Date(1899, 0, 1))).toThrow(RangeError);
+    // 2100 农历年(庚申年)止于 2101-01-28(腊月廿九):
+    // 香港天文台官方口径 2100-12-31 = 腊月初一, 腊月 29 天
+    const last = toLunar(new Date(2101, 0, 28));
+    expect(last.year).toBe(2100);
+    expect(last.month).toBe(12);
+    expect(last.day).toBe(29);
+    // 2101-01-29 起超界
+    expect(() => toLunar(new Date(2101, 0, 29))).toThrow(RangeError);
+    expect(() => toLunar(new Date(2102, 0, 1))).toThrow(RangeError);
   });
 
   test('六十甲子日干支循环正确（跨月/跨年边界）', () => {

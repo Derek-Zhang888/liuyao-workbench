@@ -90,11 +90,12 @@ export function toLunar(date) {
   }
   let ly = 1900;
   let rest = offset;
-  while (ly < 2100 && rest >= yearDays(ly)) {
+  while (rest >= yearDays(ly)) {
     rest -= yearDays(ly);
     ly += 1;
   }
   if (ly > 2100) {
+    // 2100 农历年（庚申年）止于 2101-01-27（腊月廿九），此后日期超出数据范围
     throw new RangeError(`日期超出农历数据范围（最晚 2100 年末）：${gy}-${gm}-${gd}`);
   }
   const lm = leapMonth(ly);
