@@ -108,6 +108,57 @@ describe('paipan 盘面生成器', () => {
     expect(r.bian).toBeNull();
   });
 
+  test('数字卦 method=2 可达（顶层 method 与 params.method 两种传法）', () => {
+    // 传法 b：顶层 method 直接为 1|2（与 qiguaFromNumber 对齐）——上乾(1)下兑(2)，动爻=3÷6 余3 → 三爻(索引2)
+    const r1 = paipan({ method: 2, params: { n1: 1, n2: 2, n3: 3 }, date: new Date(2026, 7, 4) });
+    expect(r1.ben.name).toBe('天泽履');
+    expect(r1.yao[2].dong).toBe(true);
+    // 传法 a：method='number' + params.method=2（UI 标准用法）
+    const r2 = paipan({ method: 'number', params: { n1: 1, n2: 2, n3: 3, method: 2 }, date: new Date(2026, 7, 4) });
+    expect(r2.ben.name).toBe('天泽履');
+    // 默认算法 1 不受影响——上乾(1)下巽(5)，动爻=(1+2+3)÷6 余0 → 上爻(索引5)
+    const r3 = paipan({ method: 'number', params: { n1: 1, n2: 2, n3: 3 }, date: new Date(2026, 7, 4) });
+    expect(r3.ben.name).toBe('天风姤');
+    expect(r3.yao[5].dong).toBe(true);
+  });
+
+  test('method 分派：time/shike/fenmiao/baoshu/yaoming/computer', () => {
+    // time 时间卦（2024-02-10 10:30 巳时：年支辰5+月1+日1=7 上艮，+时6=13 下巽，动爻=1 → 山风蛊，初爻动）
+    const t = paipan({ method: 'time', params: {}, date: new Date(2024, 1, 10, 10, 30) });
+    expect(t.ben.name).toBe('山风蛊');
+    expect(t.yao[0].dong).toBe(true);
+    // shike 时刻卦（月1+日1+时6=8 上坤，+刻7=15 下艮，动爻=3 → 地山谦，三爻动）
+    const sk = paipan({ method: 'shike', params: {}, date: new Date(2024, 1, 10, 10, 30) });
+    expect(sk.ben.name).toBe('地山谦');
+    expect(sk.yao[2].dong).toBe(true);
+    // fenmiao 分秒卦（12→3 上离，34→7 下艮，动爻=(3+7)÷6 余4 → 火山旅，四爻动）
+    const fm = paipan({ method: 'fenmiao', params: { ms: 12, ss: 34 }, date: new Date(2026, 7, 4) });
+    expect(fm.ben.name).toBe('火山旅');
+    expect(fm.yao[3].dong).toBe(true);
+    // baoshu 报数卦（3412：上离(3)下震(4)，动爻 1、2 → 火雷噬嗑，初、二爻动）
+    const bs = paipan({ method: 'baoshu', params: { digits: '3412' }, date: new Date(2026, 7, 4) });
+    expect(bs.ben.name).toBe('火雷噬嗑');
+    expect(bs.yao[0].dong).toBe(true);
+    expect(bs.yao[1].dong).toBe(true);
+    // yaoming 爻名卦（3 老阳动 → 乾为天，初爻动）
+    const ym = paipan({ method: 'yaoming', params: { lines: '311111' }, date: new Date(2026, 7, 4) });
+    expect(ym.ben.name).toBe('乾为天');
+    expect(ym.yao[0].dong).toBe(true);
+    // computer 电脑卦（固定随机序列 [0.1,0.1,0.9,...] → 老阴在第三位 → 天泽履，三爻动）
+    const seq = [0.1, 0.1, 0.9, 0.1, 0.1, 0.1];
+    const cp = paipan({ method: 'computer', params: { randomFn: () => seq.shift() }, date: new Date(2026, 7, 4) });
+    expect(cp.ben.name).toBe('天泽履');
+    expect(cp.yao[2].dong).toBe(true);
+  });
+
+  test('输入校验：非法爻画 / dong 越界 / dong 非数组 抛 RangeError', () => {
+    expect(() => paipan({ method: 'qian', params: { lines: '11111' }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+    expect(() => paipan({ method: 'qian', params: { lines: '111113' }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+    expect(() => paipan({ method: 'qian', params: { lines: '111111', dong: [6] }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+    expect(() => paipan({ method: 'qian', params: { lines: '111111', dong: [-1] }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+    expect(() => paipan({ method: 'qian', params: { lines: '111111', dong: 'x' }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+  });
+
   test('WUXING_COLOR 五行键齐全', () => {
     expect(Object.keys(WUXING_COLOR).sort()).toEqual(['土', '木', '水', '火', '金'].sort());
     for (const v of Object.values(WUXING_COLOR)) {

@@ -96,13 +96,22 @@ function parseLiqin(s) {
   return { liuqin: m[1], zhi: m[2], wuxing: m[3] };
 }
 
-/** 按 method 分派到 qigua 模块（params.lines 已存在时不经此路径） */
+/** 按 method 分派到 qigua 模块（params.lines 已存在时不经此路径）。
+ *  数字卦子算法 method=1|2 支持两种传法（避免不可达）：
+ *    a) paipan({method:'number', params:{n1,n2,n3, method:2}, date}) —— UI 标准用法
+ *    b) paipan({method:2, params:{n1,n2,n3}, date}) —— 顶层 method 直接为 1|2（与 qiguaFromNumber 对齐）
+ */
 function resolveQigua(method, params, date) {
+  if (method === 'number' || method === 1 || method === 2) {
+    return qiguaFromNumber(
+      params.n1, params.n2, params.n3,
+      method === 'number' ? (params.method ?? 1) : method,
+    );
+  }
   const dispatch = {
     qian: () => qiguaFromCoin(params.randomFn),
     yaoming: () => qiguaFromQian(params.lines),
     guaname: () => qiguaFromGuaName(params.input ?? params.lines),
-    number: () => qiguaFromNumber(params.n1, params.n2, params.n3, params.method),
     baoshu: () => qiguaFromBaoshu(params.digits),
     time: () => qiguaFromTime(date),
     computer: () => qiguaFromRandom(params.randomFn),
@@ -114,6 +123,18 @@ function resolveQigua(method, params, date) {
     throw new RangeError(`不支持的起卦方式：${JSON.stringify(method)}`);
   }
   return fn();
+}
+
+/** 校验动爻索引数组（0-5 整数，初爻=0） */
+function validateDong(dong) {
+  if (!Array.isArray(dong)) {
+    throw new RangeError(`dong 须为数组（动爻索引 0-5），收到：${JSON.stringify(dong)}`);
+  }
+  for (const d of dong) {
+    if (!Number.isInteger(d) || d < 0 || d > 5) {
+      throw new RangeError(`动爻索引须为 0-5 的整数，收到：${JSON.stringify(d)}`);
+    }
+  }
 }
 
 /**
@@ -129,12 +150,24 @@ export function paipan({ method, params = {}, date } = {}) {
     throw new TypeError(`paipan 需要 Date 对象，收到：${date}`);
   }
 
-  // ---- 1. 起卦：params.lines 直接给出，否则按 method 分派 ----
+  // ---- 1. 起卦 ----
+  // lines 优先策略：params.lines 存在时直接采用（method 仅在无 lines 时才分派到 qigua），
+  // 供 UI 层「直接指定爻画」场景使用；lines 存在但格式非法时抛错，绝不静默降级为随机起卦。
   let lines;
   let dong;
-  if (typeof params.lines === 'string' && /^[12]{6}$/.test(params.lines)) {
-    lines = params.lines;
-    dong = params.dong || [];
+  if (typeof params.lines === 'string') {
+    if (method === 'yaoming') {
+      // 爻名卦：1=阳 2=阴 3=老阳 4=老阴，3/4 记动（格式校验由 qiguaFromQian 完成）
+      ({ lines, dong } = qiguaFromQian(params.lines));
+    } else if (/^[12]{6}$/.test(params.lines)) {
+      lines = params.lines;
+      dong = params.dong ?? [];
+      validateDong(dong);
+    } else {
+      throw new RangeError(
+        `爻画格式错误：需 6 位 1/2 字符串（初→上，1=阳 2=阴），收到：${JSON.stringify(params.lines)}`,
+      );
+    }
   } else {
     ({ lines, dong } = resolveQigua(method, params, date));
   }
