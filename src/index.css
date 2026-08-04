@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-bg text-text antialiased;
+    font-family:
+      'PingFang SC',
+      'Microsoft YaHei',
+      'Noto Sans SC',
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  ::selection {
+    background-color: rgba(212, 175, 55, 0.3);
+  }
+}
