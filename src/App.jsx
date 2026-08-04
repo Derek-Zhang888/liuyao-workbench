@@ -49,12 +49,12 @@ function NotFoundPage() {
 /* ============ 导航样式 ============ */
 const tabClass = ({ isActive }) =>
   `rounded-md px-3 py-1.5 text-sm transition-colors ${
-    isActive ? 'bg-gold/10 text-gold' : 'text-muted hover:text-text'
+    isActive ? 'bg-goldSoft text-gold' : 'text-muted hover:text-text'
   }`
 
 const helperClass = ({ isActive }) =>
   `rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-    isActive ? 'bg-gold/10 text-gold' : 'text-muted hover:bg-panel hover:text-gold'
+    isActive ? 'bg-goldSoft text-gold' : 'text-muted hover:bg-panel hover:text-gold'
   }`
 
 /* ============ 应用外壳 ============ */

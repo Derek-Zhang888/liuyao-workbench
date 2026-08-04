@@ -9,6 +9,7 @@ export default {
         panel: 'var(--panel)',
         border: 'var(--border)',
         gold: 'var(--gold)',
+        goldSoft: 'var(--gold-soft)',
         red: 'var(--red)',
         text: 'var(--text)',
         muted: 'var(--muted)',
