@@ -210,9 +210,28 @@ describe('mdToGuashi 起卦参数', () => {
     const g = mdToGuashi(md).guashi;
     expect(g.params).toEqual({ lines: '211111' });
     expect(g.date).toBe('2026-08-04|14:30');
-    // front matter date 存在时优先
+    // 时间段含时刻（冒号）时优先于 front matter date（见 F1：保住起卦时刻）
     const md2 = '---\ntitle: x\ndate: 2026-08-04\n起卦参数: 钱币卦|211111|2026-08-04|14:30\n---\n\n# x';
-    expect(mdToGuashi(md2).guashi.date).toBe('2026-08-04');
+    expect(mdToGuashi(md2).guashi.date).toBe('2026-08-04|14:30');
+  });
+
+  test('字符串 params 的起卦时刻保留（F1：导出端主力形态 round-trip）', () => {
+    // 官方示例形态：字符串 params 自带 14:30，front matter date 仅日期粒度
+    const rec = makeGuashi({ params: '211111|2026-08-04 14:30' });
+    const g = mdToGuashi(guashiToMd(rec)).guashi;
+    expect(g.date).toBe('2026-08-04 14:30'); // 时刻不丢失
+    expect(g.method).toBe('qian');
+    expect(g.params).toEqual({ lines: '211111' });
+    // 重新导出仍保留时刻（不退化回 2026-08-04）
+    const md2 = guashiToMd(g);
+    expect(md2).toContain('起卦参数: 钱币卦|211111|2026-08-04 14:30');
+    // 二次导入稳定
+    expect(mdToGuashi(md2).guashi.date).toBe('2026-08-04 14:30');
+  });
+
+  test('数字卦非数字段兜底为 undefined（M5：NaN 不落 params）', () => {
+    const g = mdToGuashi('---\ntitle: x\n起卦参数: 数字卦|1,2,x|2026-08-04\n---\n\n# x').guashi;
+    expect(g.params).toEqual({ n1: 1, n2: 2 });
   });
 });
 

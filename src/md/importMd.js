@@ -18,7 +18,10 @@
  *          baoshu → {digits}；fenmiao → {ms, ss}（空段省略）
  *          number → {n1, n2, n3}（末尾 ,m2 → method:2；空段省略）
  *          time/shike → {date: 输入值}
- *      - 时间段 → guashi.date（front matter date 优先，其次起卦参数时间段）
+ *      - 时间段 → guashi.date：时间段含时刻（非空且不止日期，如带 HH:mm）时
+ *        优先采用，保住起卦时刻（字符串 params 形态的 `钱币卦|211111|2026-08-04 14:30`
+ *        导入后 date 为 2026-08-04 14:30）；否则用 front matter date；再缺为空串。
+ *        确定性回退，不取当前日期。
  *   3. 正文按 `## 节名` 提取 断语/应期/备注/反馈（trim 首尾、保留内部换行）；
  *      盘面节内容丢弃：panSnapshot 留 null，导入后由排盘重新生成
  *
@@ -147,7 +150,12 @@ function parseFmLines(lines) {
 /** 输入值 → params 对象（与 exportMd PARAMS_SERIALIZER 对称；空段省略） */
 function parseInput(method, input) {
   const csv = (s) => s.split(',').map((x) => x.trim());
-  const num = (v) => (v == null || v === '' ? undefined : Number(v));
+  /** 数值兜底：空段/NaN（非数字段）一律视作缺失，不落 params */
+  const num = (v) => {
+    if (v == null || v === '') return undefined;
+    const n = Number(v);
+    return Number.isNaN(n) ? undefined : n;
+  };
   switch (method) {
     case 'qian':
     case 'yaoming':
@@ -218,6 +226,11 @@ function parseBody(body) {
   return out;
 }
 
+/** 时间段是否含时刻（非空且不止日期）：含 ':'（如 HH:mm / ISO 时间部分）视为精确时刻 */
+function hasTimePart(s) {
+  return typeof s === 'string' && s !== '' && s.includes(':');
+}
+
 /**
  * md 文本 → 卦例对象
  * @param {string} mdText guashiToMd 导出的三层格式文本
@@ -234,13 +247,21 @@ export function mdToGuashi(mdText) {
   const qp = parseQiguaParam(fields.qiguaParam ?? '');
   if (!qp.ok) return qp;
 
+  // date 解析：起卦参数时间段含时刻（如 2026-08-04 14:30）时优先采用，保住起卦时刻
+  // （字符串 params 形态下时间段即 params 自带时间，front matter date 只有日期粒度）；
+  // 时间段为纯日期/空时回退 front matter date；再缺为空串。确定性，不取当前日期。
+  const date = hasTimePart(qp.time)
+    ? qp.time
+    : fields.date && fields.date !== ''
+      ? fields.date
+      : qp.time;
+
   const bodyFields = parseBody(body);
   return {
     ok: true,
     guashi: {
       title,
-      // front matter date 优先；缺失时回退起卦参数时间段（确定性，不取当前日期）
-      date: fields.date && fields.date !== '' ? fields.date : qp.time,
+      date,
       tags: fields.tags ?? [],
       status: fields.status && fields.status !== '' ? fields.status : '未反馈',
       jixiong: fields.jixiong ?? '',
