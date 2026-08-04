@@ -1,4 +1,5 @@
 import { HashRouter, NavLink, Route, Routes, useParams } from 'react-router-dom'
+import PaipanPage from './pages/PaipanPage.jsx'
 
 /* ============ 占位页（未实现页面统一显示页面名） ============ */
 function PlaceholderPage({ title }) {
@@ -12,7 +13,7 @@ function PlaceholderPage({ title }) {
 
 /* ============ 页面组件 ============ */
 function HomePage() {
-  return <PlaceholderPage title="排盘" />
+  return <PaipanPage />
 }
 
 function LibPage() {
