@@ -3,6 +3,7 @@ import PaipanPage from './pages/PaipanPage.jsx'
 import GuashiLibPage from './pages/GuashiLibPage.jsx'
 import RecyclePage from './pages/RecyclePage.jsx'
 import StatsPage from './pages/StatsPage.jsx'
+import SettingsPage from './pages/SettingsPage.jsx'
 import GuaciPage from './pages/help/GuaciPage.jsx'
 import NayinPage from './pages/help/NayinPage.jsx'
 import ChangshengPage from './pages/help/ChangshengPage.jsx'
@@ -26,10 +27,6 @@ function HomePage() {
 
 function LibPage() {
   return <GuashiLibPage />
-}
-
-function SettingsPage() {
-  return <PlaceholderPage title="设置" />
 }
 
 /* 辅助工具入口：卦辞爻辞 / 纳音 / 十二长生 / 生克冲合 / 取象 */
