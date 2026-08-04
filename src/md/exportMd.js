@@ -12,7 +12,8 @@
  *   - 输入值：
  *       params 为字符串 → 直接透传（`输入|时间` 两段）
  *       params 为对象 → 按方法序列化（可逆，导入端按同规则解析）：
- *         qian/yaoming/guaname/computer → 主值（lines / input）
+ *         qian/computer → 主值 lines，动爻索引以逗号追加（`222211,2,5`；无动爻仅 6 位爻画，兼容旧格式）
+ *         yaoming/guaname → 主值（lines / input）
  *         baoshu → digits
  *         number → n1,n2,n3（method=2 时追加 ,m2 标记）
  *         fenmiao → ms,ss
@@ -30,9 +31,19 @@ const LIUQIN_FULL = { 父: '父母', 兄: '兄弟', 官: '官鬼', 财: '妻财'
 /** QIGUA_METHODS id → 中文名 */
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]));
 
+/** 钱币卦/电脑卦 params → 输入值：6 位爻画 + 动爻索引（逗号分隔，如 '222211,2,5'）；
+ *  无动爻（dong 空/缺失）仅 6 位爻画，与旧格式向后兼容。
+ *  与数字卦 `n1,n2,n3[,m2]` 可区分：qian/computer 首段为 6 位 1/2 爻画，数字卦为数值 */
+function linesWithDong(p) {
+  const lines = p.lines ?? '';
+  if (!lines) return '';
+  const dong = Array.isArray(p.dong) && p.dong.length > 0 ? `,${p.dong.join(',')}` : '';
+  return lines + dong;
+}
+
 /** 各方法 params 对象 → 输入值字符串（与导入端 Task 8 约定一致） */
 const PARAMS_SERIALIZER = {
-  qian: (p) => p.lines ?? '',
+  qian: (p) => linesWithDong(p),
   yaoming: (p) => p.lines ?? '',
   guaname: (p) => p.input ?? p.lines ?? '',
   baoshu: (p) => p.digits ?? '',
@@ -43,7 +54,7 @@ const PARAMS_SERIALIZER = {
   fenmiao: (p) => [p.ms ?? '', p.ss ?? ''].join(','),
   time: (p) => timeToStr(p.date ?? p.time),
   shike: (p) => timeToStr(p.date ?? p.time),
-  computer: (p) => p.lines ?? '',
+  computer: (p) => linesWithDong(p),
 };
 
 /** 时间 → 'YYYY-MM-DD HH:mm'（Date）或原样透传（字符串） */

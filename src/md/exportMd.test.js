@@ -114,6 +114,18 @@ describe('guashiToMd 三层格式', () => {
     expect(unknown).toContain('起卦参数: foo|x|2026-08-04');
   });
 
+  test('钱币卦/电脑卦带 dong 序列化（F1：动爻随 md 导出）；dong 为空仅爻画', () => {
+    expect(
+      guashiToMd(makeGuashi({ params: { lines: '222211', dong: [2, 5] } })),
+    ).toContain('起卦参数: 钱币卦|222211,2,5|2026-08-04');
+    expect(
+      guashiToMd(makeGuashi({ method: 'computer', params: { lines: '111111', dong: [0, 2] } })),
+    ).toContain('起卦参数: 电脑卦|111111,0,2|2026-08-04');
+    // dong 空数组/缺失 → 仅 6 位爻画（与旧格式一致，向后兼容）
+    expect(guashiToMd(makeGuashi({ params: { lines: '211111', dong: [] } }))).toContain('起卦参数: 钱币卦|211111|2026-08-04');
+    expect(guashiToMd(makeGuashi({ params: { lines: '211111' } }))).toContain('起卦参数: 钱币卦|211111|2026-08-04');
+  });
+
   test('params 对象序列化：爻画/数字/报数/分秒/时间卦', () => {
     expect(guashiToMd(makeGuashi({ params: { lines: '211111' } }))).toContain('起卦参数: 钱币卦|211111|2026-08-04');
     expect(

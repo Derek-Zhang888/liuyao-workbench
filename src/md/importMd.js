@@ -13,7 +13,9 @@
  *      - 方法名：中文名 → QIGUA_METHODS id 反向映射；未知方法名 → ok:false
  *        （为与导出端「未知 id 原样输出」对称，已知 id 直接写入也接受）
  *      - 输入值按方法还原 params（与 exportMd 的 PARAMS_SERIALIZER 严格对称）：
- *          qian/yaoming/computer → {lines}
+ *          qian/computer → {lines}（6 位爻画后可带逗号分隔的动爻索引 → 追加 dong，
+ *            如 `222211,2,5` → {lines:'222211', dong:[2,5]}；无动爻仅爻画，兼容旧格式）
+ *          yaoming → {lines}
  *          guaname → 6 位 1/2 爻画 → {lines}，否则 {input}
  *          baoshu → {digits}；fenmiao → {ms, ss}（空段省略）
  *          number → {n1, n2, n3}（末尾 ,m2 → method:2；空段省略）
@@ -158,8 +160,18 @@ function parseInput(method, input) {
   };
   switch (method) {
     case 'qian':
+    case 'computer': {
+      // 格式：6 位爻画[,动爻索引...]（如 '222211,2,5'）；无动爻仅爻画（兼容旧格式，不落 dong）
+      // 动爻段空/非 0-5 整数一律丢弃（与 num 兜底风格一致，避免污染 paipan 校验）
+      const [lines, ...rest] = input.split(',');
+      const dong = rest
+        .map(num)
+        .filter((v) => v !== undefined && Number.isInteger(v) && v >= 0 && v <= 5);
+      const p = { lines };
+      if (dong.length > 0) p.dong = dong;
+      return p;
+    }
     case 'yaoming':
-    case 'computer':
       return { lines: input };
     case 'guaname':
       return /^[12]{6}$/.test(input) ? { lines: input } : { input };

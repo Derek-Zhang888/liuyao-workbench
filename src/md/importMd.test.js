@@ -163,6 +163,7 @@ describe('mdToGuashi 起卦参数', () => {
   test('各方法 params 往返无损（与 exportMd 序列化对称）', () => {
     const cases = [
       ['qian', { lines: '211111' }],
+      ['qian', { lines: '222211', dong: [1, 4] }], // F1：动爻随 md 往返
       ['yaoming', { lines: '311111' }],
       ['guaname', { input: '天风姤' }],
       ['guaname', { lines: '211111' }], // 爻画输入：导出以 lines 序列化，导入还原为 lines
@@ -173,12 +174,44 @@ describe('mdToGuashi 起卦参数', () => {
       ['time', { date: '2026-08-04 14:30' }],
       ['shike', { date: '2026-08-04 14:30' }],
       ['computer', { lines: '111111' }],
+      ['computer', { lines: '111111', dong: [0, 2] }], // F1
     ];
     for (const [method, params] of cases) {
       const g = mdToGuashi(guashiToMd(makeGuashi({ method, params }))).guashi;
       expect(g.method).toBe(method);
       expect(g.params).toEqual(params);
     }
+  });
+
+  test('旧格式兼容（F1）：无动爻 md 导入不报错且不落 dong 字段', () => {
+    const md = '---\ntitle: x\n起卦参数: 钱币卦|222211|2026-08-04\n---\n\n# x';
+    const g = mdToGuashi(md).guashi;
+    expect(g.params).toEqual({ lines: '222211' }); // 无 dong 字段
+    // 重排盘：无动爻 → 无变卦
+    const pan = paipan({ method: 'qian', params: g.params, date: new Date(2026, 7, 4) });
+    expect(pan.bian).toBeNull();
+  });
+
+  test('钱币卦带动爻导入后重排盘变卦保留（F1 主场景）', () => {
+    // 风地观 222211，二、五爻动 → 变卦应为山水蒙
+    const md = '---\ntitle: x\n起卦参数: 钱币卦|222211,1,4|2026-08-04\n---\n\n# x';
+    const g = mdToGuashi(md).guashi;
+    expect(g.params).toEqual({ lines: '222211', dong: [1, 4] });
+    const pan = paipan({ method: 'qian', params: g.params, date: new Date(2026, 7, 4) });
+    expect(pan.bian).not.toBeNull();
+    expect(pan.bian.name).toBe('山水蒙');
+    // 电脑卦同理
+    const md2 = '---\ntitle: y\n起卦参数: 电脑卦|111111,0,2|2026-08-04\n---\n\n# y';
+    const g2 = mdToGuashi(md2).guashi;
+    const pan2 = paipan({ method: 'computer', params: g2.params, date: new Date(2026, 7, 4) });
+    expect(pan2.bian.name).toBe('天水讼'); // 乾为天 初、三爻动 → 212111
+  });
+
+  test('动爻段容错：尾逗号/空段/非 0-5 整数一律丢弃，不误判 dong', () => {
+    const mk = (input) => mdToGuashi(`---\ntitle: x\n起卦参数: 钱币卦|${input}|2026-08-04\n---\n\n# x`).guashi.params;
+    expect(mk('211111,')).toEqual({ lines: '211111' }); // 尾逗号不误判 dong=[0]
+    expect(mk('211111,2,')).toEqual({ lines: '211111', dong: [2] }); // 空段丢弃
+    expect(mk('211111,9,x,2')).toEqual({ lines: '211111', dong: [2] }); // 越界/非数字丢弃
   });
 
   test('已知方法 id 直接写入也接受（导出端未知 id 原样输出的对称容错）', () => {

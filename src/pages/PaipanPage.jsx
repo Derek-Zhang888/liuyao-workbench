@@ -52,6 +52,8 @@ export default function PaipanPage() {
   const [params, setParams] = useState(null)
   const [qiguaDate, setQiguaDate] = useState(null) // 起卦时刻
   const [pan, setPan] = useState(null)
+  // 起卦区重置计数：重新起卦时 key 自增强制 QiguaSelector 重挂载（输入区状态一并清空）
+  const [qiguaResetKey, setQiguaResetKey] = useState(0)
 
   // 占断 / 保存
   const [title, setTitle] = useState('')
@@ -141,7 +143,7 @@ export default function PaipanPage() {
     setMsg('已导出 md 文件')
   }
 
-  /** 重新起卦：清空盘面与占断 */
+  /** 重新起卦：清空盘面、占断与起卦区输入 */
   const handleReset = () => {
     setPan(null)
     setMethod('')
@@ -153,6 +155,7 @@ export default function PaipanPage() {
     setSaved(null)
     setMsg('')
     setError('')
+    setQiguaResetKey((k) => k + 1) // 起卦区输入一并清空
   }
 
   /** 历史回填查看 */
@@ -186,8 +189,8 @@ export default function PaipanPage() {
 
   return (
     <div className="space-y-5">
-      {/* 起卦区 */}
-      <QiguaSelector onStart={handleStart} />
+      {/* 起卦区（key 变化时重挂载，重新起卦后输入区复位） */}
+      <QiguaSelector key={qiguaResetKey} onStart={handleStart} />
 
       {/* 盘面区 */}
       {pan && <PanView pan={pan} />}
