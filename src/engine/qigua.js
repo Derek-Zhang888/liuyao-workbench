@@ -109,10 +109,10 @@ export function qiguaFromQian(lines) {
  * randomFn() 每次返回 0-3，表示 3 枚钱币中正面向上的枚数：
  *   3正=老阳(9, 阳爻动)  2正1反=少阳(7, 阳爻静)
  *   1正2反=少阴(8, 阴爻静) 3反=老阴(6, 阴爻动)
- * @param {() => number} randomFn 默认 Math.random；须返回 0-3 的整数
+ * @param {() => number} randomFn 须返回 0-3 的整数（正面枚数）；默认 () => Math.floor(Math.random() * 4)
  * @returns {{lines:string, dong:number[]}}
  */
-export function qiguaFromCoin(randomFn = Math.random) {
+export function qiguaFromCoin(randomFn = () => Math.floor(Math.random() * 4)) {
   if (typeof randomFn !== 'function') {
     throw new TypeError('randomFn 必须为函数');
   }

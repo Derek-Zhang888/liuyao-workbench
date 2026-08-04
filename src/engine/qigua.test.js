@@ -126,8 +126,8 @@ describe('分秒卦 qiguaFromMinuteSecond', () => {
     expect(qiguaFromMinuteSecond(0, 0)).toEqual({ lines: '222222', dong: [5] }); // 0÷8余0→坤，0÷6→第6爻
     expect(qiguaFromMinuteSecond(8, 16)).toEqual({ lines: '221222', dong: [2] }); // 8→坤上，1+6=7艮下，15÷6余3
   });
-  test('单数位按 0+digit 求和', () => {
-    expect(qiguaFromMinuteSecond(5, 3).lines).toBe(qiguaFromMinuteSecond(5, 3).lines); // 契约：非负整数各位之和
+  test('单数位按 0+digit 求和：5→5 巽上，3→3 离下，(5+3)÷6 余2 → 风火家人 二爻动', () => {
+    expect(qiguaFromMinuteSecond(5, 3)).toEqual({ lines: '121211', dong: [1] });
   });
   test('非法输入抛 RangeError', () => {
     expect(() => qiguaFromMinuteSecond(-1, 30)).toThrow(RangeError);
@@ -146,9 +146,13 @@ describe('时间卦 qiguaFromTime（年月日时起卦）', () => {
     expect(r.lines).toBe('222221'); // 山地剥(坤下艮上)
     expect(r.dong).toEqual([1]);
   });
-  test('23 点后按子时（时辰序 1）', () => {
-    const r = qiguaFromTime(new Date(2026, 7, 4, 23, 30));
-    expect(r.dong).toEqual(qiguaFromTime(new Date(2026, 7, 4, 0, 30)).dong);
+  test('23 点后按子时（时辰序 1），与 0 点子时同卦', () => {
+    // 午=7 六月廿二 子=1：上=(7+6+22)÷8余3离，下=(7+6+22+1)÷8余4震，动爻 36÷6 余0→上爻动
+    const late = qiguaFromTime(new Date(2026, 7, 4, 23, 30));
+    const early = qiguaFromTime(new Date(2026, 7, 4, 0, 30));
+    expect(late).toEqual(early);
+    expect(late.lines).toBe('122121'); // 火雷噬嗑（震下离上）
+    expect(late.dong).toEqual([5]);
   });
 });
 
@@ -208,6 +212,13 @@ describe('钱币卦 qiguaFromCoin', () => {
     const r = qiguaFromCoin(() => seq.shift());
     expect(r.lines).toBe('112211');
     expect(r.dong).toEqual([0, 3, 5]);
+  });
+  test('无参调用：默认 randomFn 生成随机正面数 0-3，不抛错且输出合法', () => {
+    for (let k = 0; k < 20; k++) {
+      const r = qiguaFromCoin(); // 默认 () => Math.floor(Math.random() * 4)
+      expect(r.lines).toMatch(/^[12]{6}$/);
+      expect(r.dong.every((i) => Number.isInteger(i) && i >= 0 && i < 6)).toBe(true);
+    }
   });
   test('randomFn 非法返回值抛错', () => {
     expect(() => qiguaFromCoin(() => 5)).toThrow(RangeError);
