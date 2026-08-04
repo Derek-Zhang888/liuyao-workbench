@@ -1,12 +1,16 @@
 /**
- * 盘面展示组件（Task 9）
+ * 盘面展示组件（Task 9 / Task 14 响应式改造）
  *
  * 输入 paipan() 输出的盘面对象，暗色专业风渲染：
  *   干支行：年建/月建/日建/时建/旬空/卦身/煞神
  *   卦名行：本卦名 | 变卦名（点击跳卦辞页 /help/guaci?gua=卦名）
- *   6 爻行：六神 / 爻位 / 本卦六亲+地支 / 爻画 / 世应 / 变卦六亲 / 旺衰 / 伏神
+ *   6 爻行（上→初，每爻三格）：
+ *     六神+爻位 | 本卦六亲+世应+爻画 | 变卦六亲+旺衰+伏神
  *           点击爻行跳爻辞页 /help/yaoci?gua=卦名&line=爻索引
  * 五行配色：地支文字按五行用 --wuxing-* 变量（WUXING_COLOR）。
+ *
+ * 响应式：盘面改为「每爻一格」的紧凑结构（无固定最小列宽），
+ *   320px 手机到宽屏桌面均自适应，无需横向滚动。
  */
 import { useNavigate } from 'react-router-dom'
 import { WUXING_COLOR } from '../engine/paipan.js'
@@ -51,8 +55,22 @@ function LiqinText({ liuqin, zhi, wuxing }) {
   )
 }
 
-const colCls =
-  'grid grid-cols-[3.5rem_3.5rem_1fr_4.2rem_3rem_1fr_3rem_1fr] items-center gap-1 px-4 text-sm'
+/** 爻行三格布局：六神+爻位 | 本卦 | 变卦 */
+const rowGridCls = 'grid w-full grid-cols-[3.25rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3'
+
+/** 世/应角标 */
+function ShiYingBadge({ y }) {
+  return (
+    <>
+      {y.shi ? (
+        <span className="rounded-sm border border-gold px-1 text-[10px] leading-4 text-gold">世</span>
+      ) : null}
+      {y.ying ? (
+        <span className="rounded-sm border border-red px-1 text-[10px] leading-4 text-red">应</span>
+      ) : null}
+    </>
+  )
+}
 
 export default function PanView({ pan }) {
   const navigate = useNavigate()
@@ -64,7 +82,7 @@ export default function PanView({ pan }) {
   const goYaoci = (i) => () => navigate(`/help/yaoci?gua=${ben.name}&line=${i}`)
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-panel">
+    <section className="mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-panel">
       {/* 干支行 */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2 text-sm">
         <span className="text-muted">
@@ -124,67 +142,78 @@ export default function PanView({ pan }) {
       </div>
 
       {/* 表头 */}
-      <div className={`${colCls} border-b border-border bg-black/20 py-1.5 text-xs text-muted`}>
+      <div
+        className={`${rowGridCls} border-b border-border bg-black/20 py-1.5 px-3 text-xs text-muted`}
+      >
         <span>六神</span>
-        <span>爻位</span>
-        <span>本卦六亲</span>
-        <span className="text-center">爻画</span>
-        <span className="text-center">世应</span>
-        <span>变卦六亲</span>
-        <span className="text-center">旺衰</span>
-        <span>伏神</span>
+        <span>本卦 · 爻画 · 世应</span>
+        <span>变卦 · 旺衰 · 伏神</span>
       </div>
 
-      {/* 爻行 */}
-      <div className="overflow-x-auto">
-        <div className="min-w-[680px]">
-          {order.map((i) => {
-            const y = yao[i]
-            const b = bian ? parseLiqin(bian.liuqin[5 - i]) : null
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={goYaoci(i)}
-                title={`查看第 ${LINE_NAMES[i]} 爻辞`}
-                className={`${colCls} w-full cursor-pointer border-b border-border py-2 text-left transition-colors last:border-0 hover:bg-goldSoft`}
-              >
-                <span className="text-sm" style={{ color: LIUSHEN_COLOR[liushen[i]] ?? 'var(--muted)' }}>
+      {/* 爻行（上爻 → 初爻） */}
+      <div>
+        {order.map((i) => {
+          const y = yao[i]
+          const b = bian ? parseLiqin(bian.liuqin[5 - i]) : null
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={goYaoci(i)}
+              title={`查看第 ${LINE_NAMES[i]} 爻辞`}
+              className={`${rowGridCls} cursor-pointer border-b border-border px-3 py-2 text-left transition-colors last:border-0 hover:bg-goldSoft`}
+            >
+              {/* 六神 + 爻位 */}
+              <span className="min-w-0">
+                <span
+                  className="block truncate text-sm"
+                  style={{ color: LIUSHEN_COLOR[liushen[i]] ?? 'var(--muted)' }}
+                >
                   {liushen[i]}
                 </span>
-                <span className="text-xs text-muted">{LINE_NAMES[i]}</span>
-                <span>
+                <span className="mt-0.5 block text-[11px] text-muted">{LINE_NAMES[i]}</span>
+              </span>
+
+              {/* 本卦六亲 + 世应 + 爻画 */}
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5">
                   <LiqinText liuqin={y.liuqin} zhi={y.zhi} wuxing={y.wuxing} />
+                  <ShiYingBadge y={y} />
                 </span>
-                <span className={`text-center text-sm ${y.dong ? 'text-gold' : 'text-text'}`}>
-                  {y.line === 1 ? '━━━' : '━━  ━━'}
-                  {y.dong ? '○' : ''}
+                <span className="mt-1 flex items-center gap-1 whitespace-nowrap text-sm leading-none">
+                  <span className={y.dong ? 'text-gold' : 'text-text'}>
+                    {y.line === 1 ? '━━━' : '━━  ━━'}
+                    {y.dong ? '○' : ''}
+                  </span>
                 </span>
-                <span className="text-center text-sm">
-                  {y.shi ? <b className="text-gold">世</b> : y.ying ? <b className="text-red">应</b> : ''}
-                </span>
-                <span>
-                  {b ? <LiqinText liuqin={b.liuqin} zhi={b.zhi} wuxing={b.wuxing} /> : <span className="text-muted">—</span>}
-                </span>
-                <span
-                  className="text-center text-xs"
-                  style={{ color: WANG_COLOR[y.wangshuai] ?? 'var(--muted)' }}
-                >
-                  {y.wangshuai}
-                </span>
-                <span className="text-sm">
-                  {y.fushen ? (
-                    <span className="text-muted">
-                      伏 <LiqinText liuqin={y.fushen.liuqin} zhi={y.fushen.zhi} wuxing={y.fushen.wuxing} />
-                    </span>
+              </span>
+
+              {/* 变卦六亲 + 旺衰 + 伏神 */}
+              <span className="min-w-0">
+                <span className="block truncate text-sm">
+                  {b ? (
+                    <LiqinText liuqin={b.liuqin} zhi={b.zhi} wuxing={b.wuxing} />
                   ) : (
-                    ''
+                    <span className="text-muted">—</span>
                   )}
                 </span>
-              </button>
-            )
-          })}
-        </div>
+                <span className="mt-1 flex items-center gap-2 text-xs">
+                  <span
+                    className="shrink-0"
+                    style={{ color: WANG_COLOR[y.wangshuai] ?? 'var(--muted)' }}
+                  >
+                    {y.wangshuai}
+                  </span>
+                  {y.fushen ? (
+                    <span className="truncate text-muted">
+                      伏 <LiqinText liuqin={y.fushen.liuqin} zhi={y.fushen.zhi} wuxing={y.fushen.wuxing} />
+                    </span>
+                  ) : null}
+                </span>
+              </span>
+            </button>
+          )
+        })}
       </div>
     </section>
   )

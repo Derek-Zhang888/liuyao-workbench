@@ -348,7 +348,7 @@ export default function QiguaSelector({ onStart }) {
               value={guaInput}
               onChange={(e) => setGuaInput(e.target.value)}
               placeholder="如：乾为天 / 天风姤 / 211111"
-              className={`${inputCls} w-64`}
+              className={`${inputCls} w-full max-w-xs`}
             />
             <span className="text-xs text-muted">支持 64 卦名、八纯卦单字（如「坎」）或 6 位爻画（1阳 2阴），无动爻</span>
           </div>
@@ -394,7 +394,7 @@ export default function QiguaSelector({ onStart }) {
               type="datetime-local"
               value={dt}
               onChange={(e) => setDt(e.target.value)}
-              className={`${inputCls} [color-scheme:dark]`}
+              className={`${inputCls} w-full max-w-xs [color-scheme:dark]`}
             />
             <span className="text-xs text-muted">
               {method === 'time'

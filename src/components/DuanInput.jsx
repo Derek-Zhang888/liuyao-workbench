@@ -42,8 +42,8 @@ export default function DuanInput({ value, onChange }) {
 
   return (
     <div className="space-y-4">
-      {/* 断语 / 应期 */}
-      <div className="grid gap-3 md:grid-cols-2">
+      {/* 断语 / 应期（排盘页三栏布局下列宽较窄，纵向堆叠更易读） */}
+      <div className="space-y-3">
         <div>
           <div className="mb-1.5 text-sm text-muted">断语</div>
           <textarea
@@ -67,7 +67,7 @@ export default function DuanInput({ value, onChange }) {
       </div>
 
       {/* 备注 / 反馈 */}
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="space-y-3">
         <div>
           <div className="mb-1.5 text-sm text-muted">备注</div>
           <textarea

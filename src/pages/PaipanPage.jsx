@@ -5,6 +5,9 @@
  *       → 填占断/选标签 → 「保存卦例」（addGuashi，panSnapshot 存盘面，date 用起卦时刻）
  *       → 「导出 md」（guashiToMd → Blob 下载）｜「重新起卦」清空
  *       → 排盘历史：最近 20 条已保存卦例，点击回填查看
+ *
+ * 响应式（Task 14）：≥1024px 三栏（起卦 | 盘面 | 占断），
+ *   ≥768px 两栏（起卦+盘面并排、占断在下），<768px 单列纵向滚动。
  */
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -188,16 +191,20 @@ export default function PaipanPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
       {/* 起卦区（key 变化时重挂载，重新起卦后输入区复位） */}
       <QiguaSelector key={qiguaResetKey} onStart={handleStart} />
 
-      {/* 盘面区 */}
-      {pan && <PanView pan={pan} />}
-
-      {/* 占断区 */}
+      {/* 盘面区：md 起卦+盘面并排；lg 起卦|盘面|占断 三栏 */}
       {pan && (
-        <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+        <div className="md:col-span-1 lg:col-span-1">
+          <PanView pan={pan} />
+        </div>
+      )}
+
+      {/* 占断区：md 横跨两列（占断在下）；lg 第三列 */}
+      {pan && (
+        <section className="rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-1">
           <h2 className="mb-4 text-base font-medium text-gold">占断</h2>
 
           {/* 卦题 */}
@@ -260,7 +267,7 @@ export default function PaipanPage() {
       )}
 
       {/* 排盘历史 */}
-      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-3">
         <h2 className="mb-3 text-base font-medium text-gold">排盘历史（最近 20 条）</h2>
         {history.length === 0 ? (
           <p className="text-sm text-muted">暂无已保存的卦例</p>
