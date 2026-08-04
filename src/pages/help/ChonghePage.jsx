@@ -30,12 +30,17 @@ function qpos(i) {
 
 const NODE_R = 26
 
-/** 将节点圆环上的点收缩到圆盘边缘（终点落在圆盘外，箭头才可见） */
-function edgePoint(p) {
+/**
+ * 以【节点圆心】为基准把端点收缩到圆盘边缘（距图心 QR±NODE_R±1）。
+ * inner=true → 圆盘内缘（相克直线贴内缘进，避免穿中心文字）；
+ * inner=false → 圆盘外缘（相生弧线贴外缘进）。
+ * 箭头可见性由 DOM 绘制顺序保证：线条在节点圆盘之后渲染，浮于其上。
+ */
+function nodeEdge(p, inner) {
   const dx = p.x - QCX
   const dy = p.y - QCY
   const d = Math.hypot(dx, dy) || 1
-  const r = NODE_R - 2
+  const r = inner ? QR - NODE_R + 1 : QR + NODE_R - 1
   return { x: QCX + (dx / d) * r, y: QCY + (dy / d) * r }
 }
 
@@ -229,11 +234,23 @@ export default function ChonghePage() {
               <path d="M0,0 L8,4 L0,8 Z" fill="var(--red)" />
             </marker>
           </defs>
-          {/* 相生弧线（顺时针 相邻） */}
+          {/* 六亲节点（先绘，线条后绘浮于其上） */}
+          {LIUQIN_ORDER.map((q, i) => {
+            const p = qpos(i)
+            return (
+              <g key={q}>
+                <circle cx={p.x} cy={p.y} r={26} fill="var(--panel)" stroke="var(--border)" strokeWidth="1" />
+                <text x={p.x} y={p.y + 5} textAnchor="middle" fontSize="14" fill="var(--text)">
+                  {q}
+                </text>
+              </g>
+            )
+          })}
+          {/* 相生弧线（顺时针 相邻，贴节点外缘） */}
           {LIUQIN_ORDER.map((q, i) => {
             const n = (i + 1) % LIUQIN_ORDER.length
-            const a = edgePoint(qpos(i))
-            const b = edgePoint(qpos(n))
+            const a = nodeEdge(qpos(i), false)
+            const b = nodeEdge(qpos(n), false)
             // 二次贝塞尔：中点沿径向外推，弧线鼓向外侧
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
             const rr = Math.hypot(mid.x - QCX, mid.y - QCY)
@@ -250,11 +267,11 @@ export default function ChonghePage() {
               />
             )
           })}
-          {/* 相克连线（红色 隔一节点） */}
+          {/* 相克连线（红色 隔一节点，贴节点内缘） */}
           {LIUQIN_ORDER.map((q, i) => {
             const n = (i + 2) % LIUQIN_ORDER.length
-            const a = edgePoint(qpos(i))
-            const b = edgePoint(qpos(n))
+            const a = nodeEdge(qpos(i), true)
+            const b = nodeEdge(qpos(n), true)
             return (
               <line
                 key={`ke-${q}`}
@@ -267,18 +284,6 @@ export default function ChonghePage() {
                 strokeOpacity="0.7"
                 markerEnd="url(#arrowRed)"
               />
-            )
-          })}
-          {/* 六亲节点 */}
-          {LIUQIN_ORDER.map((q, i) => {
-            const p = qpos(i)
-            return (
-              <g key={q}>
-                <circle cx={p.x} cy={p.y} r={26} fill="var(--panel)" stroke="var(--border)" strokeWidth="1" />
-                <text x={p.x} y={p.y + 5} textAnchor="middle" fontSize="14" fill="var(--text)">
-                  {q}
-                </text>
-              </g>
             )
           })}
           <text x={QCX} y={QCY - 4} textAnchor="middle" fontSize="12" fill="var(--muted)">
