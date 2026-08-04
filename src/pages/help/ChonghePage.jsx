@@ -289,9 +289,6 @@ export default function ChonghePage() {
           <text x={QCX} y={QCY - 4} textAnchor="middle" fontSize="12" fill="var(--muted)">
             六亲
           </text>
-          <text x={QCX} y={QCY + 12} textAnchor="middle" fontSize="10" fill="var(--muted)">
-            环上相邻相生 · 隔位相克
-          </text>
         </svg>
       </section>
 
