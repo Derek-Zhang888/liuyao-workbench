@@ -3,6 +3,11 @@ import PaipanPage from './pages/PaipanPage.jsx'
 import GuashiLibPage from './pages/GuashiLibPage.jsx'
 import RecyclePage from './pages/RecyclePage.jsx'
 import StatsPage from './pages/StatsPage.jsx'
+import GuaciPage from './pages/help/GuaciPage.jsx'
+import NayinPage from './pages/help/NayinPage.jsx'
+import ChangshengPage from './pages/help/ChangshengPage.jsx'
+import ChonghePage from './pages/help/ChonghePage.jsx'
+import QuXiangPage from './pages/help/QuXiangPage.jsx'
 
 /* ============ 占位页（未实现页面统一显示页面名） ============ */
 function PlaceholderPage({ title }) {
@@ -32,7 +37,7 @@ const HELP_ENTRIES = [
   { path: 'guaci', label: '卦辞爻辞' },
   { path: 'nayin', label: '纳音' },
   { path: 'changsheng', label: '十二长生' },
-  { path: 'shengke', label: '生克冲合' },
+  { path: 'chonghe', label: '生克冲合' },
   { path: 'quxiang', label: '取象' },
 ]
 
@@ -106,6 +111,15 @@ export default function App() {
             <Route path="/lib" element={<LibPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/recycle" element={<RecyclePage />} />
+            {/* 辅助页：卦辞爻辞（guaci 卦辞 / yaoci 爻辞，同页双形态）/ 纳音 / 十二长生 / 生克冲合 / 取象 */}
+            <Route path="/help/guaci" element={<GuaciPage />} />
+            <Route path="/help/yaoci" element={<GuaciPage />} />
+            <Route path="/help/nayin" element={<NayinPage />} />
+            <Route path="/help/changsheng" element={<ChangshengPage />} />
+            <Route path="/help/chonghe" element={<ChonghePage />} />
+            {/* 旧导航 shengke 路由别名（Task 12 前占位路径，保留兼容） */}
+            <Route path="/help/shengke" element={<ChonghePage />} />
+            <Route path="/help/quxiang" element={<QuXiangPage />} />
             <Route path="/help/:type" element={<HelpPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
