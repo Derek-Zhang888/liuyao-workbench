@@ -1,5 +1,7 @@
 import { HashRouter, NavLink, Route, Routes, useParams } from 'react-router-dom'
 import PaipanPage from './pages/PaipanPage.jsx'
+import GuashiLibPage from './pages/GuashiLibPage.jsx'
+import RecyclePage from './pages/RecyclePage.jsx'
 
 /* ============ 占位页（未实现页面统一显示页面名） ============ */
 function PlaceholderPage({ title }) {
@@ -17,7 +19,7 @@ function HomePage() {
 }
 
 function LibPage() {
-  return <PlaceholderPage title="卦例库" />
+  return <GuashiLibPage />
 }
 
 function StatsPage() {
@@ -106,6 +108,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/lib" element={<LibPage />} />
             <Route path="/stats" element={<StatsPage />} />
+            <Route path="/recycle" element={<RecyclePage />} />
             <Route path="/help/:type" element={<HelpPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
