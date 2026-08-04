@@ -12,7 +12,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { paipan } from '../engine/paipan.js'
 import { QIGUA_METHODS } from '../engine/qigua.js'
 import { addGuashi, getGuashi, listGuashi, softDelete, updateGuashi } from '../db/guashiRepo.js'
 import { listTags } from '../db/tagsRepo.js'
@@ -22,31 +21,10 @@ import DuanInput from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
 import GuashiCard from '../components/GuashiCard.jsx'
 import { downloadGuashiBatch, downloadGuashiMd } from '../utils/exportBatch.js'
+import { resolvePan } from '../utils/panResolve.js'
 
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 const STATUS_OPTIONS = ['全部', '未反馈', '已反馈']
-
-/** 解析 'YYYY-MM-DD HH:mm' / 'YYYY-MM-DD' → Date，失败返回 null */
-function parseDate(s) {
-  if (!s) return null
-  const d = new Date(String(s).replace(' ', 'T'))
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-/** 盘面解析：快照优先；无快照按 method/params 重新排盘（导入的卦例走此路径） */
-function resolvePan(rec) {
-  if (rec.panSnapshot) return { ok: true, pan: rec.panSnapshot }
-  try {
-    const pan = paipan({
-      method: rec.method,
-      params: rec.params ?? {},
-      date: parseDate(rec.date) ?? new Date(),
-    })
-    return { ok: true, pan }
-  } catch (e) {
-    return { ok: false, error: e.message }
-  }
-}
 
 /** 从记录中提取占断字段（DuanInput 的 value 结构） */
 function duanOf(rec) {

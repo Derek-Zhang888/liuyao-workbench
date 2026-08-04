@@ -2,6 +2,7 @@ import { HashRouter, NavLink, Route, Routes, useParams } from 'react-router-dom'
 import PaipanPage from './pages/PaipanPage.jsx'
 import GuashiLibPage from './pages/GuashiLibPage.jsx'
 import RecyclePage from './pages/RecyclePage.jsx'
+import StatsPage from './pages/StatsPage.jsx'
 
 /* ============ 占位页（未实现页面统一显示页面名） ============ */
 function PlaceholderPage({ title }) {
@@ -20,10 +21,6 @@ function HomePage() {
 
 function LibPage() {
   return <GuashiLibPage />
-}
-
-function StatsPage() {
-  return <PlaceholderPage title="统计" />
 }
 
 function SettingsPage() {
