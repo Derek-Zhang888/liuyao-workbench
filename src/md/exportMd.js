@@ -37,10 +37,10 @@ const PARAMS_SERIALIZER = {
   guaname: (p) => p.input ?? p.lines ?? '',
   baoshu: (p) => p.digits ?? '',
   number: (p) => {
-    const s = [p.n1, p.n2, p.n3].join(',');
+    const s = [p.n1 ?? '', p.n2 ?? '', p.n3 ?? ''].join(',');
     return p.method === 2 ? `${s},m2` : s;
   },
-  fenmiao: (p) => [p.ms, p.ss].join(','),
+  fenmiao: (p) => [p.ms ?? '', p.ss ?? ''].join(','),
   time: (p) => timeToStr(p.date ?? p.time),
   shike: (p) => timeToStr(p.date ?? p.time),
   computer: (p) => p.lines ?? '',
@@ -56,19 +56,35 @@ function timeToStr(v) {
   return '';
 }
 
+/** YAML 1.1 布尔/空值关键字（大小写不敏感），裸输出会被解析成布尔/None */
+const YAML_KEYWORDS = new Set(['null', 'true', 'false', 'yes', 'no', 'on', 'off', '~']);
+
 /**
  * YAML 标量安全输出：空/缺失 → ""（保证导入可解析）；
- * 含特殊字符（冒号/引号/行首特殊符号等）→ 双引号包裹并转义；
+ * 以下情况强制双引号包裹并转义：
+ *   - 含 #（空格+# 后内容会被 YAML 当注释丢弃）
+ *   - 含反斜杠/双引号（双引号串内须转义）
+ *   - 恰为 YAML 1.1 关键字（null/true/false/yes/no/on/off/~）
+ *   - 含冒号等特殊字符、行首为特殊符号
  * 其余原样输出（与简报示例一致，如 `title: 占测今日出行`）。
  */
 function yamlScalar(v) {
   if (v === null || v === undefined) return '""';
   const s = String(v);
   if (s === '') return '""';
-  if (/^[一-龥A-Za-z0-9,.+()\-/·%#\s]+$/.test(s) && !/^[\s\-*&[\]{}|>#]/.test(s)) {
+  if (
+    /^[一-龥A-Za-z0-9,.+()\-/·%\s]+$/.test(s) && // # 不在安全集
+    !/^[\s\-*&[\]{}|>]/.test(s) &&
+    !YAML_KEYWORDS.has(s.toLowerCase()) // 关键字强制加引号
+  ) {
     return s;
   }
-  return `"${s.replace(/"/g, '\\"')}"`;
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; // 先转义反斜杠再转义双引号
+}
+
+/** 起卦参数 YAML 安全：空串或以 | 开头（块标量指示符）时输出 "" */
+function safeQiguaParam(s) {
+  return s === '' || s.startsWith('|') ? '""' : s;
 }
 
 /** tags 数组 → `[tag1, tag2]`（逗号+空格） */
@@ -137,7 +153,7 @@ export function guashiToMd(g) {
     ['吉凶对错', yamlScalar(rec.jixiongOk ?? '')],
     ['应期对错', yamlScalar(rec.yingqiOk ?? '')],
     ['方位对错', yamlScalar(rec.fangweiOk ?? '')],
-    ['起卦参数', buildQiguaParam(rec)],
+    ['起卦参数', safeQiguaParam(buildQiguaParam(rec))],
   ]
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n');

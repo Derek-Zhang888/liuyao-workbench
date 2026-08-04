@@ -125,4 +125,42 @@ describe('guashiToMd 三层格式', () => {
       guashiToMd(makeGuashi({ method: 'time', params: { date: new Date(2026, 7, 4, 14, 30) } })),
     ).toContain('起卦参数: 时间卦|2026-08-04 14:30|2026-08-04');
   });
+
+  test('起卦参数三段全空输出 ""（YAML 兼容，不以 | 开头）', () => {
+    const md = guashiToMd(makeGuashi({ method: '', params: null, date: '' }));
+    expect(md).toContain('起卦参数: ""');
+    expect(md).not.toContain('起卦参数: |');
+  });
+
+  test('yamlScalar 转义：# / 反斜杠 / YAML 1.1 关键字强制引号包裹', () => {
+    const md = guashiToMd(makeGuashi({ title: '出行 #注意', date: 'a\\b', status: 'null', tags: ['yes', '真'] }));
+    expect(md).toContain('title: "出行 #注意"');
+    expect(md).toContain('date: "a\\\\b"');
+    expect(md).toContain('status: "null"');
+    expect(md).toContain('tags: ["yes", 真]');
+  });
+
+  test('数字卦 method=1 无标记；guaname/yaoming/computer/shike 序列化；fenmiao 缺字段兜底', () => {
+    expect(
+      guashiToMd(makeGuashi({ method: 'number', params: { n1: 1, n2: 2, n3: 3 } })),
+    ).toContain('起卦参数: 数字卦|1,2,3|2026-08-04');
+    expect(guashiToMd(makeGuashi({ method: 'guaname', params: { input: '天风姤' } }))).toContain('起卦参数: 卦名卦|天风姤|2026-08-04');
+    expect(guashiToMd(makeGuashi({ method: 'yaoming', params: { lines: '311111' } }))).toContain('起卦参数: 爻名卦|311111|2026-08-04');
+    expect(guashiToMd(makeGuashi({ method: 'computer', params: { lines: '111111' } }))).toContain('起卦参数: 电脑卦|111111|2026-08-04');
+    expect(
+      guashiToMd(makeGuashi({ method: 'shike', params: { date: new Date(2026, 7, 4, 14, 30) } })),
+    ).toContain('起卦参数: 时刻卦|2026-08-04 14:30|2026-08-04');
+    expect(guashiToMd(makeGuashi({ method: 'fenmiao', params: { ms: 12 } }))).toContain('起卦参数: 分秒卦|12,|2026-08-04');
+  });
+
+  test('断语空行精确断言：## 断语 后空两行再 ## 应期', () => {
+    const md = guashiToMd(makeGuashi({ duanyu: '' }));
+    expect(md).toContain('## 断语\n\n\n\n## 应期');
+  });
+
+  test('盘面渲染：动爻●标记与世应列', () => {
+    const md = guashiToMd(makeGuashi());
+    expect(md).toContain('| 青龙 | 父母 | 辰 | 土 | 应 | 1● | 旺 |'); // 三爻：应位 + 动爻
+    expect(md).toContain('| 螣蛇 | 父母 | 戌 | 土 | 世 | 1 | 旺 |'); // 上爻：世位
+  });
 });
