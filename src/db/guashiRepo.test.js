@@ -10,6 +10,7 @@ import {
   restoreGuashi,
   purgeGuashi,
   purgeExpired,
+  replaceAllGuashi,
 } from './guashiRepo.js';
 import { addTag, listTags } from './tagsRepo.js';
 import { getSetting, setSetting } from './settingsRepo.js';
@@ -154,6 +155,51 @@ describe('软删除与回收站', () => {
     await purgeGuashi(g.id);
     expect(await getGuashi(g.id)).toBeUndefined();
     expect(await listGuashi()).toHaveLength(0);
+  });
+});
+
+describe('replaceAllGuashi 批量覆盖（备份导入用）', () => {
+  test('正常全量写入：清空后写入全部记录并返回条数，保留 id 与 deleted 标记', async () => {
+    await addGuashi(makeGuashi({ title: '旧卦1' }));
+    await addGuashi(makeGuashi({ title: '旧卦2' }));
+    const items = [
+      makeGuashi({ id: 111, title: '新卦1', deleted: true }),
+      makeGuashi({ id: 222, title: '新卦2' }),
+      makeGuashi({ id: 333, title: '新卦3', deleted: true, delAt: 123 }),
+    ];
+    const count = await replaceAllGuashi(items);
+    expect(count).toBe(3);
+    // 旧数据被清空，新数据全量写入（列表按 id 倒序）
+    expect((await listGuashi()).map((g) => g.title)).toEqual(['新卦2']);
+    expect((await listGuashi({ deleted: true })).map((g) => g.title)).toEqual(['新卦3', '新卦1']);
+    expect((await getGuashi(111)).deleted).toBe(true);
+    expect((await getGuashi(333)).delAt).toBe(123);
+  });
+
+  test('重复 id 只写入第一条', async () => {
+    const count = await replaceAllGuashi([
+      makeGuashi({ id: 111, title: '首条' }),
+      makeGuashi({ id: 111, title: '重复条' }),
+    ]);
+    expect(count).toBe(1);
+    expect((await getGuashi(111)).title).toBe('首条');
+  });
+
+  test('含非对象记录时整体失败回滚，原数据保留', async () => {
+    await addGuashi(makeGuashi({ title: '原始卦' }));
+    await expect(
+      replaceAllGuashi([makeGuashi({ id: 1, title: '合法新卦' }), null]),
+    ).rejects.toThrow();
+    // 原数据未被清空，失败部分未写入
+    expect((await listGuashi()).map((g) => g.title)).toEqual(['原始卦']);
+    expect(await getGuashi(1)).toBeUndefined();
+  });
+
+  test('缺少有效 id（含 NaN）的记录整体失败回滚，原数据保留', async () => {
+    await addGuashi(makeGuashi({ title: '原始卦' }));
+    await expect(replaceAllGuashi([makeGuashi({ title: '无id' })])).rejects.toThrow();
+    await expect(replaceAllGuashi([makeGuashi({ id: NaN, title: 'NaN id' })])).rejects.toThrow();
+    expect((await listGuashi()).map((g) => g.title)).toEqual(['原始卦']);
   });
 });
 

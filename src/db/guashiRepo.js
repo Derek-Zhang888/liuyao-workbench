@@ -105,6 +105,44 @@ export async function purgeGuashi(id) {
 }
 
 /**
+ * 批量覆盖卦例表（备份导入用）：单事务内 clear + 逐条 put，
+ * 任一步失败事务自动 abort 回滚，原数据保留，不会产生半覆盖状态。
+ * 重复 id 只写入第一条；非法记录（非对象 / 无有效 id）整体拒绝。
+ * @param {Array} items 完整卦例记录数组（须含有效 id，number 或 string）
+ * @returns {Promise<number>} 实际写入条数
+ */
+export async function replaceAllGuashi(items) {
+  // 同步预校验（事务外）：记录必须是含有效 id 的对象，非法输入整体拒绝、不动数据
+  const clean = [];
+  const seen = new Set();
+  for (const g of items) {
+    if (!g || typeof g !== 'object') throw new Error('replaceAllGuashi: 记录必须为对象');
+    const idOk = (typeof g.id === 'number' && Number.isFinite(g.id)) || typeof g.id === 'string';
+    if (!idOk) throw new Error('replaceAllGuashi: 记录缺少有效 id');
+    if (seen.has(g.id)) continue;
+    seen.add(g.id);
+    clean.push(g);
+  }
+
+  const db = await openDB();
+  const tx = db.transaction('guashi', 'readwrite');
+  const store = tx.objectStore('guashi');
+  try {
+    await reqToPromise(store.clear());
+    for (const g of clean) await reqToPromise(store.put(g));
+  } catch (e) {
+    try {
+      tx.abort(); // 同步异常（如不可克隆值）时主动中止事务，已写入部分一并回滚
+    } catch {
+      /* 事务已因错误自动 abort */
+    }
+    throw e;
+  }
+  await txDone(tx);
+  return clean.length;
+}
+
+/**
  * 清理回收站中已过期的卦例：delAt + recycleDays*86400000 < now
  * recycleDays 从 settings 读，默认 30
  * @returns {Promise<number>} 清理条数

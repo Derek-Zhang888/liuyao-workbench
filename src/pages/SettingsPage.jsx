@@ -13,9 +13,9 @@
  *   - 关于：应用名 / 版本 / 说明
  */
 import { useEffect, useRef, useState } from 'react'
-import { openDB, reqToPromise, txDone } from '../db/index.js'
+import { openDB, reqToPromise } from '../db/index.js'
 import { getSetting, setSetting } from '../db/settingsRepo.js'
-import { addGuashi, listGuashi, purgeGuashi } from '../db/guashiRepo.js'
+import { listGuashi, purgeGuashi, replaceAllGuashi } from '../db/guashiRepo.js'
 import { addTag, listTags } from '../db/tagsRepo.js'
 
 /** 与 package.json 保持一致 */
@@ -32,14 +32,6 @@ function ymd(ts) {
 async function listSettings() {
   const db = await openDB()
   return reqToPromise(db.transaction('settings').objectStore('settings').getAll())
-}
-
-/** 清空卦例表（导入覆盖用；repo 层无此方法，直接走 openDB） */
-async function clearGuashi() {
-  const db = await openDB()
-  const tx = db.transaction('guashi', 'readwrite')
-  await reqToPromise(tx.objectStore('guashi').clear())
-  await txDone(tx)
 }
 
 export default function SettingsPage() {
@@ -159,14 +151,8 @@ export default function SettingsPage() {
     )) return
 
     try {
-      // 1. 覆盖卦例：清空表后批量写入（保留备份中的 id 与 deleted 标记）
-      await clearGuashi()
-      const seen = new Set()
-      for (const g of records) {
-        if (g.id != null && seen.has(g.id)) continue
-        if (g.id != null) seen.add(g.id)
-        await addGuashi(g)
-      }
+      // 1. 覆盖卦例：单事务 clear+put（replaceAllGuashi 失败自动回滚，原数据保留）
+      const importedCount = await replaceAllGuashi(records)
       // 2. 标签按 name 去重合并
       const existing = new Set((await listTags()).map((t) => t.name))
       let addedTags = 0
@@ -186,11 +172,12 @@ export default function SettingsPage() {
       const d = (await getSetting('recycleDays')) ?? 30
       setCurrentDays(d)
       setDays(String(d))
-      setMsg(`导入成功：${records.length} 条卦例、${addedTags} 个新标签；设置已覆盖`)
+      setMsg(`导入成功：${importedCount} 条卦例、${addedTags} 个新标签；设置已覆盖`)
       setError('')
       refresh()
     } catch (e) {
       setError('导入失败：' + e.message)
+      refresh() // 失败后同步界面数据概况与实际库一致
     }
   }
 
