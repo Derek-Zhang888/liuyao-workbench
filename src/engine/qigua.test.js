@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
   qiguaFromQian, qiguaFromCoin, qiguaFromGuaName, qiguaFromNumber,
-  qiguaFromBaoshu, qiguaFromTime, qiguaFromRandom, qiguaFromMinuteSecond,
+  qiguaFromBaoshu, qiguaFromTime, qiguaFromRandom,
+  findGuaByName, searchGuaByName,
   QIGUA_METHODS,
 } from './qigua';
 
@@ -70,6 +71,23 @@ describe('卦名卦 qiguaFromGuaName', () => {
   });
 });
 
+describe('卦名模糊搜索 searchGuaByName（含水火/火水变体，v0.10 建议3 #4）', () => {
+  test('子串「未济」命中火水未济', () => {
+    const list = searchGuaByName('未济');
+    expect(list.some((g) => g.name === '火水未济')).toBe(true);
+  });
+  test('「水火」同时命中水火既济与火水未济', () => {
+    const list = searchGuaByName('水火');
+    const names = list.map((g) => g.name);
+    expect(names).toContain('水火既济');
+    expect(names).toContain('火水未济'); // 变体展开
+  });
+  test('别名「水火未济」完整命中火水未济（findGuaByName 亦支持）', () => {
+    expect(searchGuaByName('水火未济')[0].name).toBe('火水未济');
+    expect(findGuaByName('水火未济').name).toBe('火水未济');
+  });
+});
+
 describe('数字卦 qiguaFromNumber', () => {
   test('数字卦算法1（简报用例）：1÷8上乾，(2+3)÷8下巽，(1+2+3)÷6 余0→6爻动', () => {
     const r = qiguaFromNumber(1, 2, 3, 1);
@@ -107,18 +125,13 @@ describe('报数卦 qiguaFromBaoshu', () => {
     expect(qiguaFromBaoshu('123322').dong).toEqual([1, 2]); // 动爻 3,3,2,2
     expect(qiguaFromBaoshu('154321').dong).toEqual([0, 1, 2, 3]); // 1-4 爻动
   });
-  test('非法输入抛 RangeError', () => {
+  test('非法输入抛 RangeError（数字不能为 0，v0.10 建议3 #6）', () => {
     expect(() => qiguaFromBaoshu('1')).toThrow(RangeError);    // 长度不足
+    expect(() => qiguaFromBaoshu('0123')).toThrow(RangeError); // 卦数 0 不允许
+    expect(() => qiguaFromBaoshu('120')).toThrow(RangeError);  // 动爻编号 0 不允许
     expect(() => qiguaFromBaoshu('127')).toThrow(RangeError);  // 动爻编号 7 越界
     expect(() => qiguaFromBaoshu('12a')).toThrow(RangeError);  // 非数字
     expect(() => qiguaFromBaoshu(1234)).toThrow(RangeError);   // 非字符串
-  });
-  test('0 视作 8（卦数位）或 6（动爻位）', () => {
-    // '0123'：digits[0]='0'→上卦 8(坤222)、digits[1]='1'→下卦 1(乾111)；
-    // lines = GUA_NUM_LINES[1]+GUA_NUM_LINES[8] = '111'+'222' = '111222'（天地否）
-    // 动爻：digits[2]='2'→dongIdx(2)=1，digits[3]='3'→dongIdx(3)=2 → [1,2]
-    expect(qiguaFromBaoshu('0123')).toEqual({ lines: '111222', dong: [1, 2] });
-    expect(qiguaFromBaoshu('000')).toEqual({ lines: '222222', dong: [5] });
   });
 });
 

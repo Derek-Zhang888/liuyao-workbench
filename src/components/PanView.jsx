@@ -27,13 +27,14 @@ function parseLiqin(s) {
   return m ? { liuqin: m[1], zhi: m[2], wuxing: m[3] } : null
 }
 
-/** 六亲+地支（地支按五行配色） */
+/** 六亲+地支（地支按五行配色，后缀五行字如「戌土」） */
 function LiqinText({ liuqin, zhi, wuxing }) {
   return (
     <>
       <span className="mr-0.5 text-text">{liuqin}</span>
       <span className="font-medium" style={{ color: WUXING_COLOR[wuxing] ?? 'var(--text)' }}>
         {zhi}
+        {wuxing ?? ''}
       </span>
     </>
   )
@@ -129,7 +130,9 @@ export default function PanView({ pan }) {
               {bian.name}
             </button>
             <span className="text-xs text-muted">
-              {bian.gong}宫{bian.liuhe ? '·六合' : ''}
+              {bian.gong}宫{bian.youhun ? '·游魂' : ''}
+              {bian.guihun ? '·归魂' : ''}
+              {bian.liuhe ? '·六合' : ''}
               {bian.liuchong ? '·六冲' : ''}
             </span>
           </>

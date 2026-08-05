@@ -34,6 +34,18 @@ import { toLunar, fromLunar } from '../engine/ganzhi.js'
 /** 起卦区输入持久化：切辅助工具页后返回不丢失，仅重置键清空。 */
 const INPUT_SESSION_KEY = 'liuyao-qigua-input-state'
 
+/** 从起卦输入持久化中读取指定字段（useState 惰性初始化用）；无存储/解析失败返回 fallback */
+function readInput(key, fallback) {
+  try {
+    const raw = sessionStorage.getItem(INPUT_SESSION_KEY)
+    if (!raw) return fallback
+    const s = JSON.parse(raw)
+    return s[key] ?? fallback
+  } catch (_) {
+    return fallback
+  }
+}
+
 const METHOD_MAP = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m]))
 
 /** 爻位名（初爻→上爻） */
@@ -180,38 +192,40 @@ function Select({ name, value, onChange, options, className = 'w-24' }) {
 }
 
 export default function QiguaSelector({ onStart }) {
-  const [method, setMethod] = useState('qian')
+  // —— 输入区状态：useState 惰性初始化从 sessionStorage 恢复（v0.10 建议3 #5）。
+  //   不依赖 effect 执行顺序，StrictMode 双执行也安全（两次读同一存储值）。
+  const [method, setMethod] = useState(() => readInput('method', 'qian'))
   const [error, setError] = useState('')
 
   // —— 起卦时间（所有起卦方式共用）——
-  const [dateMode, setDateMode] = useState('solar') // solar 新历 / lunar 农历
-  const [dt, setDt] = useState(nowLocal())
-  const [lunar, setLunar] = useState(nowLunar())
+  const [dateMode, setDateMode] = useState(() => readInput('dateMode', 'solar')) // solar 新历 / lunar 农历
+  const [dt, setDt] = useState(() => readInput('dt', nowLocal()))
+  const [lunar, setLunar] = useState(() => readInput('lunar', nowLunar()))
 
   // —— 钱币卦：六爻各三枚钱币的正/背面（如初爻「背正正」）——
-  const [coinFaces, setCoinFaces] = useState(defaultCoinFaces)
+  const [coinFaces, setCoinFaces] = useState(() => readInput('coinFaces', defaultCoinFaces()))
 
   // —— 爻名卦 ——
-  const [yaoSpins, setYaoSpins] = useState(Array(6).fill('1'))
+  const [yaoSpins, setYaoSpins] = useState(() => readInput('yaoSpins', Array(6).fill('1')))
 
   // —— 卦名卦：本卦 / 变卦 分开模糊搜索（变卦选填，相异爻位即动爻）——
-  const [guaBen, setGuaBen] = useState('')
-  const [guaBian, setGuaBian] = useState('')
+  const [guaBen, setGuaBen] = useState(() => readInput('guaBen', ''))
+  const [guaBian, setGuaBian] = useState(() => readInput('guaBian', ''))
 
   // —— 数字卦 ——
-  const [num1, setNum1] = useState('')
-  const [num2, setNum2] = useState('')
-  const [num3, setNum3] = useState('')
-  const [numMethod, setNumMethod] = useState(1)
+  const [num1, setNum1] = useState(() => readInput('num1', ''))
+  const [num2, setNum2] = useState(() => readInput('num2', ''))
+  const [num3, setNum3] = useState(() => readInput('num3', ''))
+  const [numMethod, setNumMethod] = useState(() => readInput('numMethod', 1))
 
   // —— 报数卦 ——
-  const [digits, setDigits] = useState('')
+  const [digits, setDigits] = useState(() => readInput('digits', ''))
 
   // —— 电脑卦 ——
-  const [compMode, setCompMode] = useState('interact') // interact 逐爻随机 / direct 一键随机
-  const [compSeq, setCompSeq] = useState([]) // 交互模式已生成的 [0,1) 随机数
+  const [compMode, setCompMode] = useState(() => readInput('compMode', 'interact')) // interact 逐爻随机 / direct 一键随机
+  const [compSeq, setCompSeq] = useState(() => readInput('compSeq', [])) // 交互模式已生成的 [0,1) 随机数
 
-  // —— 输入区状态持久化：跨导航/刷新保留，PaipanPage「重新起卦」时由 key 变化强制重挂载 ——
+  // —— 写入：每次渲染后持久化最新输入状态（mount 时初始值已恢复，写回等价内容无害）——
   const inputState = {
     method, dateMode, dt, lunar, coinFaces, yaoSpins, guaBen, guaBian,
     num1, num2, num3, numMethod, digits, compMode, compSeq,
@@ -221,28 +235,6 @@ export default function QiguaSelector({ onStart }) {
       sessionStorage.setItem(INPUT_SESSION_KEY, JSON.stringify(inputState))
     } catch (_) { /* 容量不足时静默失败 */ }
   })
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(INPUT_SESSION_KEY)
-      if (!raw) return
-      const s = JSON.parse(raw)
-      if (s.method) setMethod(s.method)
-      if (s.dateMode) setDateMode(s.dateMode)
-      if (typeof s.dt === 'string') setDt(s.dt)
-      if (s.lunar && typeof s.lunar === 'object') setLunar(s.lunar)
-      if (Array.isArray(s.coinFaces) && s.coinFaces.length === 6) setCoinFaces(s.coinFaces)
-      if (Array.isArray(s.yaoSpins) && s.yaoSpins.length === 6) setYaoSpins(s.yaoSpins)
-      if (typeof s.guaBen === 'string') setGuaBen(s.guaBen)
-      if (typeof s.guaBian === 'string') setGuaBian(s.guaBian)
-      if (typeof s.num1 === 'string') setNum1(s.num1)
-      if (typeof s.num2 === 'string') setNum2(s.num2)
-      if (typeof s.num3 === 'string') setNum3(s.num3)
-      if (s.numMethod === 1 || s.numMethod === 2) setNumMethod(s.numMethod)
-      if (typeof s.digits === 'string') setDigits(s.digits)
-      if (s.compMode === 'interact' || s.compMode === 'direct') setCompMode(s.compMode)
-      if (Array.isArray(s.compSeq)) setCompSeq(s.compSeq)
-    } catch (_) { /* 解析失败时静默，使用默认状态 */ }
-  }, [])
 
   const meta = METHOD_MAP[method]
 
@@ -348,7 +340,7 @@ export default function QiguaSelector({ onStart }) {
         }
         case 'baoshu': {
           const d = digits.trim()
-          if (!d) throw new Error('请输入 2-8 位数字（0 当作 8 / 第 6 爻动）')
+          if (!d) throw new Error('请输入 2-8 位数字')
           params = { digits: d }
           result = qiguaFromBaoshu(d)
           break
@@ -596,7 +588,7 @@ export default function QiguaSelector({ onStart }) {
             >
               重置
             </button>
-            <span className="text-xs text-muted">报 2-8 位数字：前两位为卦数（0-8，先上后下，0 当作 8），其余各位为动爻编号（0-6，0 当作第 6 爻动）</span>
+            <span className="text-xs text-muted">报 2-8 位数字：前两位为卦数（1-8，先上后下，1乾 2兑 3离 4震 5巽 6坎 7艮 8坤），其余各位为动爻编号（1-6，1=初爻动，可多动爻，数字不能为 0）</span>
           </div>
         )}
 

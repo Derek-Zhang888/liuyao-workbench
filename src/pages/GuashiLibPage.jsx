@@ -125,15 +125,21 @@ export default function GuashiLibPage() {
     if (tag) doDeleteTag(tag)
   }
 
-  /** 筛选后的展示列表（tag 多选为「任一命中」） */
+  /** 筛选后的展示列表（tag 多选为「任一命中」）；
+ *  有标签筛选时，命中标签数越多的卦例排越前（v0.10 建议3 #7），命中数相同保持原序（新→旧） */
   const filtered = useMemo(() => {
-    return records.filter((r) => {
+    const list = records.filter((r) => {
       if (selTags.length > 0 && !selTags.some((t) => (r.tags ?? []).includes(t))) return false
       if (statusFilter !== '全部' && r.status !== statusFilter) return false
       const kw = keyword.trim()
       if (kw && !(r.title ?? '').includes(kw) && !(r.duanyu ?? '').includes(kw)) return false
       return true
     })
+    if (selTags.length > 0) {
+      const hitCount = (r) => (r.tags ?? []).filter((t) => selTags.includes(t)).length
+      return [...list].sort((a, b) => hitCount(b) - hitCount(a))
+    }
+    return list
   }, [records, selTags, statusFilter, keyword])
 
   const selectedRecords = useMemo(

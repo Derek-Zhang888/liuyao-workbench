@@ -132,6 +132,16 @@ const GUA_NAME_ALIASES = {
   水火未济: '火水未济',
 };
 
+/** 搜索关键词展开：对「水火/火水」互换写法与别名生成多个候选关键词，
+ *  使输入「水火」「水火未济」等也能命中标准名「火水未济」（v0.10 建议3 #4）。 */
+function aliasKeywords(k) {
+  const out = new Set([k]);
+  if (k.includes('水火')) out.add(k.replace('水火', '火水'));
+  if (k.includes('火水')) out.add(k.replace('火水', '水火'));
+  if (GUA_NAME_ALIASES[k]) out.add(GUA_NAME_ALIASES[k]);
+  return [...out];
+}
+
 /** 卦名 → 64 卦表条目（名 / 纯卦单字 / 去「为」简称 / 别名）；查无返回 undefined */
 export function findGuaByName(name) {
   if (typeof name !== 'string') return undefined;
@@ -143,34 +153,33 @@ export function findGuaByName(name) {
 }
 
 /**
- * 卦名模糊搜索：关键词按子串匹配卦名（含去「为」简称）与八宫名。
+ * 卦名模糊搜索：关键词按子串匹配卦名（含去「为」简称）与八宫名；
+ *  同时对「水火/火水」互换写法与别名展开多关键词（见 aliasKeywords）。
  * 排序：精确名 > 名前缀 > 名含 > 宫名含；关键词为空返回空数组。
  * 例：'天' → 天风姤 / 天山遁 / 天地否 / 火天大有 …
- * @param {string} keyword 关键词，如「天」「同人」「乾」
+ * @param {string} keyword 关键词，如「天」「同人」「乾」「水火」
  * @param {number} [limit=12] 最多返回条数（<=0 表示不限）
  * @returns {Array<{gong:string, name:string, lines:string}>} 64 卦表条目
  */
 export function searchGuaByName(keyword, limit = 12) {
   const k = typeof keyword === 'string' ? keyword.trim() : '';
   if (!k) return [];
+  const keywords = aliasKeywords(k); // 可能含「水火/火水」互换 + 别名
   const rank = (g) => {
     const short = g.name.replace('为', '');
-    if (g.name === k || short === k) return 0;
-    if (g.name.startsWith(k) || short.startsWith(k)) return 1;
-    if (g.name.includes(k) || short.includes(k)) return 2;
-    if (g.gong.includes(k)) return 3;
-    return 9;
-  };
-  // 别名（口语写法）→ 标准名：搜索时对别名也做完全匹配（rank 0）和子串匹配（rank 2）
-  const aliasedName = GUA_NAME_ALIASES[k];
-  const aliasRank = (g) => {
-    if (!aliasedName) return 9;
-    if (g.name === aliasedName) return 0; // 命中别名
-    if (g.name.includes(aliasedName)) return 2; // 子串命中别名
-    return 9;
+    let best = 9;
+    for (const kw of keywords) {
+      let r = 9;
+      if (g.name === kw || short === kw) r = 0;
+      else if (g.name.startsWith(kw) || short.startsWith(kw)) r = 1;
+      else if (g.name.includes(kw) || short.includes(kw)) r = 2;
+      else if (g.gong.includes(kw)) r = 3;
+      if (r < best) best = r;
+    }
+    return best;
   };
   const hits = GUA_64
-    .map((g, i) => ({ g, r: Math.min(rank(g), aliasRank(g)), i }))
+    .map((g, i) => ({ g, r: rank(g), i }))
     .filter((x) => x.r < 9)
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.g);
@@ -240,9 +249,9 @@ export function qiguaFromNumber(n1, n2, n3, method = 1) {
 }
 
 /**
- * 报数卦：2-8 位数字字符串。
- * 前两位为卦数 0-8（先上后下），其余各位为动爻编号 0-6（多个动爻去重排序）。
- * 0 视为「零」，按「零除以八当作八 / 零除以六当作六」约定映射：卦数位 0→8，动爻位 0→6。
+ * 报数卦：2-8 位数字字符串（v0.10 建议3 #6 恢复「数字不能为 0」）。
+ * 前两位为卦数 1-8（先上后下，1乾 2兑 3离 4震 5巽 6坎 7艮 8坤），
+ * 其余各位为动爻编号 1-6（1=初爻动 … 6=上爻动，多个动爻去重排序，最多 6 位）。
  * @param {string} digits 如 '1234'：上乾下兑，3、4 爻动
  * @returns {{lines:string, dong:number[]}}
  */
@@ -250,18 +259,18 @@ export function qiguaFromBaoshu(digits) {
   if (typeof digits !== 'string' || !/^\d{2,8}$/.test(digits)) {
     throw new RangeError(`报数卦需要 2-8 位数字字符串，收到：${JSON.stringify(digits)}`);
   }
-  const normNum = (s, max, fallback) => {
-    const n = Number(s);
-    if (!Number.isInteger(n) || n < 0 || n > max) {
-      throw new RangeError(`报数卦数字须为 0-${max}，收到：${s}`);
-    }
-    return n === 0 ? fallback : n; // 0 → fallback（卦数位 0→8，动爻位 0→6）
-  };
-  const shangNum = normNum(digits[0], 8, 8);
-  const xiaNum = normNum(digits[1], 8, 8);
+  const shangNum = Number(digits[0]);
+  const xiaNum = Number(digits[1]);
+  if (shangNum < 1 || shangNum > 8 || xiaNum < 1 || xiaNum > 8) {
+    throw new RangeError('报数卦前两位须为 1-8 的卦数');
+  }
   const dong = [];
   for (let i = 2; i < digits.length; i++) {
-    dong.push(dongIdx(normNum(digits[i], 6, 6)));
+    const d = Number(digits[i]);
+    if (d < 1 || d > 6) {
+      throw new RangeError('报数卦动爻编号须为 1-6');
+    }
+    dong.push(dongIdx(d));
   }
   return { lines: GUA_NUM_LINES[xiaNum] + GUA_NUM_LINES[shangNum], dong: normalizeDong(dong) };
 }

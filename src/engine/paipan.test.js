@@ -105,9 +105,18 @@ describe('paipan 盘面生成器', () => {
   test('新历/农历日期与神煞（2026-08-04 庚戌日）', () => {
     const r = paipan({ method: 'qian', params: { lines: '211111', dong: [] }, date: new Date(2026, 7, 4) });
     expect(r.solarDate).toBe('2026-08-04');
-    expect(r.lunarDate).toMatch(/^农历\d+年.?\d+月\d+日$/);
+    // 农历中文格式（v0.10 建议3 #3）：农历2026年六月廿二（月/日均为中文，末尾无「日」字）
+    expect(r.lunarDate).toMatch(/^农历\d+年(闰)?[正一二三四五六七八九十冬腊]月[初一二三四五六七八九十廿]+$/);
+    expect(r.lunarDate).toBe('农历2026年六月廿二');
     // 庚日贵人临丑未；天风姤初爻父丑土 → 贵
     expect(r.yao[0].shensha).toContain('贵');
+  });
+
+  test('农历中文：正月/初一/初十/二十 边界', () => {
+    const r1 = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2024, 1, 10) });
+    expect(r1.lunarDate).toBe('农历2024年正月初一');
+    const r2 = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
+    expect(r2.lunarDate).toBe('农历2026年六月廿二');
   });
 
   test('method 分派：卦名卦起卦', () => {

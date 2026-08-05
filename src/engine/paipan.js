@@ -66,6 +66,31 @@ const SHENG = { 木: '火', 火: '土', 土: '金', 金: '水', 水: '木' };
 /** 五行相克：木→土→水→火→金→木 */
 const KE = { 木: '土', 土: '水', 水: '火', 火: '金', 金: '木' };
 
+/** 数字 → 中文数字（1-99） */
+const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+function cnNum(n) {
+  if (n < 10) return CN_DIGITS[n];
+  if (n === 10) return '十';
+  if (n < 20) return `十${CN_DIGITS[n - 10]}`;
+  const t = Math.floor(n / 10);
+  const u = n % 10;
+  return `${CN_DIGITS[t]}十${u ? CN_DIGITS[u] : ''}`;
+}
+/** 农历月 → 中文月名（正月 / 二月 … 十二月） */
+function cnMonth(m) {
+  return m === 1 ? '正月' : `${cnNum(m)}月`;
+}
+/** 农历日 → 中文日名（初一…三十，二十余日用「廿」：廿一、廿二…廿九） */
+function cnDay(d) {
+  if (d === 1) return '初一';
+  if (d < 10) return `初${CN_DIGITS[d]}`;
+  if (d === 10) return '初十';
+  if (d < 20) return `十${CN_DIGITS[d - 10]}`;
+  if (d === 20) return '二十';
+  if (d < 30) return `廿${CN_DIGITS[d - 20]}`;
+  return '三十';
+}
+
 /**
  * 旺衰（测试版简化）：月建五行 m vs 爻五行 x
  *   同我(x=m)=旺  生我(m生x)=相  我生(x生m)=休  克我(m克x)=囚  我克(x克m)=死
@@ -308,7 +333,7 @@ export function paipan({ method, params = {}, date } = {}) {
     yuejian: lunar.yuejian,
     solarDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
     solarTime: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
-    lunarDate: `农历${lunar.year}年${lunar.isLeap ? '闰' : ''}${lunar.month}月${lunar.day}日`,
+    lunarDate: `农历${lunar.year}年${lunar.isLeap ? '闰' : ''}${cnMonth(lunar.month)}${cnDay(lunar.day)}`,
     guashen: GONG_GUASHEN[benGua.gong],
     shashen: null, // 测试版暂不实现煞神（神煞已按爻展示于盘面）
   };
