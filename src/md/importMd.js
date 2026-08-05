@@ -16,10 +16,10 @@
  *          qian/computer → {lines}（6 位爻画后可带逗号分隔的动爻索引 → 追加 dong，
  *            如 `222211,2,5` → {lines:'222211', dong:[2,5]}；无动爻仅爻画，兼容旧格式）
  *          yaoming → {lines}
- *          guaname → 6 位 1/2 爻画 → {lines}，否则 {input}
+ *          guaname → `本卦[>变卦]`：6 位 1/2 爻画 → {lines}，否则 {input}；有变卦段追加 {bian}
  *          baoshu → {digits}；fenmiao → {ms, ss}（空段省略）
  *          number → {n1, n2, n3}（末尾 ,m2 → method:2；空段省略）
- *          time/shike → {date: 输入值}
+ *          time → {date: 输入值}
  *      - 时间段 → guashi.date：时间段含时刻（非空且不止日期，如带 HH:mm）时
  *        优先采用，保住起卦时刻（字符串 params 形态的 `钱币卦|211111|2026-08-04 14:30`
  *        导入后 date 为 2026-08-04 14:30）；否则用 front matter date；再缺为空串。
@@ -173,8 +173,13 @@ function parseInput(method, input) {
     }
     case 'yaoming':
       return { lines: input };
-    case 'guaname':
-      return /^[12]{6}$/.test(input) ? { lines: input } : { input };
+    case 'guaname': {
+      // 格式：本卦[>变卦]（变卦段为空时省略，与旧格式向后兼容）
+      const [ben, bian] = input.split('>');
+      const p = /^[12]{6}$/.test(ben) ? { lines: ben } : { input: ben };
+      if (bian) p.bian = bian;
+      return p;
+    }
     case 'baoshu':
       return { digits: input };
     case 'number': {
@@ -199,7 +204,6 @@ function parseInput(method, input) {
       return p;
     }
     case 'time':
-    case 'shike':
       return input ? { date: input } : {};
     default:
       return {};

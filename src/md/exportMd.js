@@ -2,7 +2,8 @@
  * md 导出模块（六爻工作台 - Task 7）
  *
  * guashiToMd(guashi) → 三层格式 markdown 文本：
- *   1. front matter（YAML，字段顺序固定）：
+ *   1. front matter（YAML，字段顺序固定），顶部为 FM_GUIDE 指导注释块
+ *      （填写模板 / 填错无法导入的提醒 / 盘面 1=阳爻 2=阴爻释义，均为 `#` 注释，不影响解析）：
  *      title/date/tags/status/吉凶/吉凶对错/应期对错/方位对错/起卦参数
  *   2. 标题：# 卦题
  *   3. 正文：## 盘面 / ## 断语 / ## 应期 / ## 备注 / ## 反馈
@@ -13,11 +14,11 @@
  *       params 为字符串 → 直接透传（`输入|时间` 两段）
  *       params 为对象 → 按方法序列化（可逆，导入端按同规则解析）：
  *         qian/computer → 主值 lines，动爻索引以逗号追加（`222211,2,5`；无动爻仅 6 位爻画，兼容旧格式）
- *         yaoming/guaname → 主值（lines / input）
+ *         yaoming → lines；guaname → 本卦名（input / lines），有变卦时记作 `本卦>变卦`
  *         baoshu → digits
  *         number → n1,n2,n3（method=2 时追加 ,m2 标记）
  *         fenmiao → ms,ss
- *         time/shike → 时间字符串（Date 或 ISO 字符串）
+ *         time → 时间字符串（Date 或 ISO 字符串）
  *   - 时间：字符串 params 自带（| 后段）；对象取 params.date/time；
  *     均缺失时回退 guashi.date
  *
@@ -45,7 +46,10 @@ function linesWithDong(p) {
 const PARAMS_SERIALIZER = {
   qian: (p) => linesWithDong(p),
   yaoming: (p) => p.lines ?? '',
-  guaname: (p) => p.input ?? p.lines ?? '',
+  guaname: (p) => {
+    const ben = p.input ?? p.lines ?? '';
+    return p.bian ? `${ben}>${p.bian}` : ben; // 有变卦时记作 `本卦>变卦`
+  },
   baoshu: (p) => p.digits ?? '',
   number: (p) => {
     const s = [p.n1 ?? '', p.n2 ?? '', p.n3 ?? ''].join(',');
@@ -53,7 +57,6 @@ const PARAMS_SERIALIZER = {
   },
   fenmiao: (p) => [p.ms ?? '', p.ss ?? ''].join(','),
   time: (p) => timeToStr(p.date ?? p.time),
-  shike: (p) => timeToStr(p.date ?? p.time),
   computer: (p) => linesWithDong(p),
 };
 
@@ -92,6 +95,43 @@ function yamlScalar(v) {
   }
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; // 先转义反斜杠再转义双引号
 }
+
+/**
+ * front matter 顶部指导块（全部为 YAML `#` 注释行，YAML 解析器与导入端
+ * importMd.parseFmLines（正则 `^([^:\s]+):`，`# ` 开头行不匹配）均会跳过）。
+ * 覆盖三点：① 各字段填写模板 ② 填错会导致无法导入的提醒 ③ 盘面 1/2 爻画释义（人与 AI 均可读）。
+ * 约束：任何一行都不得整行为三连字符，否则会提前截断 front matter。
+ */
+const FM_GUIDE = [
+  '# ===== 六爻工作台 · 卦例文件 =====',
+  '# 下面 # 开头的行是 YAML 注释，仅为填写说明，导入时会被忽略，可保留也可删除。',
+  '#',
+  '# 一、填写模板（照示例改内容；冒号用半角 ":"，冒号后留一个空格）',
+  '#   title: 占测今日出行          【必填】卦题，一句话说明所占何事',
+  '#   date: 2026-08-04 14:30      起卦日期时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm',
+  '#   tags: [出行, 等反馈]         标签数组，半角逗号+空格分隔；无标签写 []',
+  '#   status: 未反馈              未反馈 / 已反馈',
+  '#   吉凶: 吉                    吉 / 凶 / 平；未定写 ""',
+  '#   吉凶对错: 对                 回访应验后填 对 / 错；未定写 ""',
+  '#   应期对错: 对                 同上',
+  '#   方位对错: 对                 同上',
+  '#   起卦参数: 钱币卦|211111,0,2|2026-08-04 14:30',
+  '#     【必填】三段式「方法名|输入值|时间」，用半角竖线 | 分隔，缺段留空但竖线要保留。',
+  '#     方法名取：钱币卦 电脑卦 爻名卦 卦名卦 报数卦 数字卦 分秒卦 时间卦 时刻卦',
+  '#     输入值：钱币卦/电脑卦/爻名卦为 6 位爻画，其后可跟动爻位（0=初爻 … 5=上爻）；',
+  '#            卦名卦填卦名（如 天风姤）；报数卦填数字串；数字卦填 n1,n2,n3；',
+  '#            分秒卦填 分,秒；时间卦/时刻卦填时间。',
+  '#',
+  '# 二、格式提醒：title 与 起卦参数 缺失或写错（误用中文冒号「：」、中文竖线「｜」，',
+  '#   方法名不在上表，竖线段数不对等）会导致本文件【无法导入】，导入时报错并跳过。',
+  '#   值中若含 # : " 等符号，请用半角双引号整体包住，例：title: "出行 #注意"。',
+  '#',
+  '# 三、盘面读法（给人，也给其他 AI）：爻画 1 = 阳爻（实线 —），2 = 阴爻（断线 - -）；',
+  '#   爻画后的 ● 表示该爻为动爻，动爻按 1↔2 翻转后即得变卦。',
+  '#   起卦参数中的 6 位数字同为爻画，自左至右依次是初爻、二爻、三爻、四爻、五爻、上爻；',
+  '#   下方盘面表格第 1 行为初爻，最后 1 行为上爻。',
+  '#   世应列：「世」为求测人自己，「应」为对方或所测之事。',
+].join('\n');
 
 /** 起卦参数 YAML 安全：空串或以 | 开头（块标量指示符）时输出 "" */
 function safeQiguaParam(s) {
@@ -177,5 +217,5 @@ export function guashiToMd(g) {
     section('反馈', rec.fankui ?? ''),
   ].join('\n\n');
 
-  return `---\n${fm}\n---\n\n# ${rec.title ?? ''}\n\n${body}\n`;
+  return `---\n${FM_GUIDE}\n${fm}\n---\n\n# ${rec.title ?? ''}\n\n${body}\n`;
 }

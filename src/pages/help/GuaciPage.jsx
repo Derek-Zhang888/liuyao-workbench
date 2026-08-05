@@ -94,6 +94,9 @@ export default function GuaciPage() {
         <Link to="/help/guaci" className="text-xs text-muted transition-colors hover:text-gold">
           ← 全部卦辞
         </Link>
+        <Link to="/" className="ml-4 text-xs text-muted transition-colors hover:text-gold">
+          ← 返回排盘
+        </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h2 className="text-2xl font-bold text-gold">{gua.name}</h2>
           <span className="text-sm text-muted">{gua.gong}宫</span>

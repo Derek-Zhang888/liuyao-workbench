@@ -5,7 +5,7 @@
  *   干支行：年建/月建/日建/时建/旬空/卦身/煞神
  *   卦名行：本卦名 | 变卦名（点击跳卦辞页 /help/guaci?gua=卦名）
  *   6 爻行（上→初，每爻三格）：
- *     六神+爻位 | 本卦六亲+世应+爻画 | 变卦六亲+旺衰+伏神
+ *     六神+爻位 | 本卦六亲+世应+爻画+伏神 | 变卦六亲
  *           点击爻行跳爻辞页 /help/yaoci?gua=卦名&line=爻索引
  * 五行配色：地支文字按五行用 --wuxing-* 变量（WUXING_COLOR）。
  *
@@ -26,15 +26,6 @@ const LIUSHEN_COLOR = {
   螣蛇: 'var(--wuxing-tu)',
   白虎: 'var(--wuxing-jin)',
   玄武: 'var(--wuxing-shui)',
-}
-
-/** 旺衰配色：旺金色，死红色，其余弱化 */
-const WANG_COLOR = {
-  旺: 'var(--gold)',
-  相: 'var(--text)',
-  休: 'var(--muted)',
-  囚: 'var(--muted)',
-  死: 'var(--red)',
 }
 
 /** 解析 '父戌土' → {liuqin, zhi, wuxing}（与 paipan.js 内部解析规则一致） */
@@ -104,7 +95,10 @@ export default function PanView({ pan }) {
           卦身 <b className="ml-0.5 text-gold">{pan.guashen ?? '—'}</b>
         </span>
         <span className="text-muted">
-          煞神 <b className="ml-0.5 text-gold">{pan.shashen ?? '—'}</b>
+          新历 <b className="ml-0.5 text-gold">{pan.solarDate}</b>
+        </span>
+        <span className="text-muted">
+          农历 <b className="ml-0.5 text-gold">{pan.lunarDate}</b>
         </span>
       </div>
 
@@ -122,6 +116,8 @@ export default function PanView({ pan }) {
         <span className="text-xs text-muted">
           {ben.gong}宫{ben.youhun ? '·游魂' : ''}
           {ben.guihun ? '·归魂' : ''}
+          {ben.liuhe ? '·六合' : ''}
+          {ben.liuchong ? '·六冲' : ''}
         </span>
         {bian ? (
           <>
@@ -134,7 +130,10 @@ export default function PanView({ pan }) {
             >
               {bian.name}
             </button>
-            <span className="text-xs text-muted">{bian.gong}宫</span>
+            <span className="text-xs text-muted">
+              {bian.gong}宫{bian.liuhe ? '·六合' : ''}
+              {bian.liuchong ? '·六冲' : ''}
+            </span>
           </>
         ) : (
           <span className="ml-2 text-xs text-muted">（无动爻，故无变卦）</span>
@@ -147,7 +146,7 @@ export default function PanView({ pan }) {
       >
         <span>六神</span>
         <span>本卦 · 爻画 · 世应</span>
-        <span>变卦 · 旺衰 · 伏神</span>
+        <span>变卦</span>
       </div>
 
       {/* 爻行（上爻 → 初爻） */}
@@ -174,21 +173,32 @@ export default function PanView({ pan }) {
                 <span className="mt-0.5 block text-[11px] text-muted">{LINE_NAMES[i]}</span>
               </span>
 
-              {/* 本卦六亲 + 世应 + 爻画 */}
+              {/* 本卦六亲 + 世应 + 爻画 + 伏神 */}
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5">
                   <LiqinText liuqin={y.liuqin} zhi={y.zhi} wuxing={y.wuxing} />
                   <ShiYingBadge y={y} />
+                  {y.shensha && y.shensha.length ? (
+                    <span className="rounded-sm bg-white/5 px-1 text-[10px] leading-4 text-gold">
+                      {y.shensha.join('')}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="mt-1 flex items-center gap-1 whitespace-nowrap text-sm leading-none">
                   <span className={y.dong ? 'text-gold' : 'text-text'}>
-                    {y.line === 1 ? '━━━' : '━━  ━━'}
-                    {y.dong ? '○' : ''}
+                    {y.line === 1
+                      ? y.dong ? '━━━○' : '━━━'
+                      : y.dong ? '━━x━' : '━━ ━━'}
                   </span>
                 </span>
+                {y.fushen ? (
+                  <span className="mt-1 truncate text-xs text-muted">
+                    伏 <LiqinText liuqin={y.fushen.liuqin} zhi={y.fushen.zhi} wuxing={y.fushen.wuxing} />
+                  </span>
+                ) : null}
               </span>
 
-              {/* 变卦六亲 + 旺衰 + 伏神 */}
+              {/* 变卦六亲 */}
               <span className="min-w-0">
                 <span className="block truncate text-sm">
                   {b ? (
@@ -196,19 +206,6 @@ export default function PanView({ pan }) {
                   ) : (
                     <span className="text-muted">—</span>
                   )}
-                </span>
-                <span className="mt-1 flex items-center gap-2 text-xs">
-                  <span
-                    className="shrink-0"
-                    style={{ color: WANG_COLOR[y.wangshuai] ?? 'var(--muted)' }}
-                  >
-                    {y.wangshuai}
-                  </span>
-                  {y.fushen ? (
-                    <span className="truncate text-muted">
-                      伏 <LiqinText liuqin={y.fushen.liuqin} zhi={y.fushen.zhi} wuxing={y.fushen.wuxing} />
-                    </span>
-                  ) : null}
                 </span>
               </span>
             </button>

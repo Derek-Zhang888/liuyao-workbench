@@ -35,8 +35,8 @@ describe('paipan 盘面生成器', () => {
     });
     expect(r.bian.name).toBe('坤为地');
     expect(r.bian.gong).toBe('坤');
-    // 变卦六亲（上→初）与卦表一致
-    expect(r.bian.liuqin).toEqual(['孙酉金', '财亥水', '兄丑土', '官卯木', '父巳火', '兄未土']);
+    // 变卦六亲（上→初）按本宫法：乾宫金为"我"生克坤为地各爻地支
+    expect(r.bian.liuqin).toEqual(['兄酉金', '孙亥水', '父丑土', '财卯木', '官巳火', '父未土']);
   });
 
   test('无动爻 bian=null', () => {
@@ -99,7 +99,15 @@ describe('paipan 盘面生成器', () => {
   test('卦身/煞神字段：乾宫卦身戌（测试版简化），煞神空', () => {
     const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
     expect(r.guashen).toBe('戌'); // 简报确认"乾卦身起戌"
-    expect(r.shashen).toBeNull(); // 测试版暂无煞神
+    expect(r.shashen).toBeNull(); // 测试版暂无煞神（神煞已按爻展示）
+  });
+
+  test('新历/农历日期与神煞（2026-08-04 庚戌日）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '211111', dong: [] }, date: new Date(2026, 7, 4) });
+    expect(r.solarDate).toBe('2026-08-04');
+    expect(r.lunarDate).toMatch(/^农历\d+年.?\d+月\d+日$/);
+    // 庚日贵人临丑未；天风姤初爻父丑土 → 贵
+    expect(r.yao[0].shensha).toContain('贵');
   });
 
   test('method 分派：卦名卦起卦', () => {
@@ -122,15 +130,11 @@ describe('paipan 盘面生成器', () => {
     expect(r3.yao[5].dong).toBe(true);
   });
 
-  test('method 分派：time/shike/fenmiao/baoshu/yaoming/computer', () => {
+  test('method 分派：time/fenmiao/baoshu/yaoming/computer', () => {
     // time 时间卦（2024-02-10 10:30 巳时：年支辰5+月1+日1=7 上艮，+时6=13 下巽，动爻=1 → 山风蛊，初爻动）
     const t = paipan({ method: 'time', params: {}, date: new Date(2024, 1, 10, 10, 30) });
     expect(t.ben.name).toBe('山风蛊');
     expect(t.yao[0].dong).toBe(true);
-    // shike 时刻卦（月1+日1+时6=8 上坤，+刻7=15 下艮，动爻=3 → 地山谦，三爻动）
-    const sk = paipan({ method: 'shike', params: {}, date: new Date(2024, 1, 10, 10, 30) });
-    expect(sk.ben.name).toBe('地山谦');
-    expect(sk.yao[2].dong).toBe(true);
     // fenmiao 分秒卦（12→3 上离，34→7 下艮，动爻=(3+7)÷6 余4 → 火山旅，四爻动）
     const fm = paipan({ method: 'fenmiao', params: { ms: 12, ss: 34 }, date: new Date(2026, 7, 4) });
     expect(fm.ben.name).toBe('火山旅');
@@ -168,7 +172,7 @@ describe('paipan 盘面生成器', () => {
 
   test('非法输入：未知 method / 数字卦非法参数 / 缺 date 抛错', () => {
     expect(() => paipan({ method: 'nope', params: {}, date: new Date(2026, 7, 4) })).toThrow(RangeError);
-    expect(() => paipan({ method: 'number', params: { n1: 0, n2: 1, n3: 1 }, date: new Date(2026, 7, 4) })).toThrow(RangeError);
+    expect(() => paipan({ method: 'number', params: { n1: 0, n2: 1, n3: 1 }, date: new Date(2026, 7, 4) })).not.toThrow(); // 0 现为合法输入（余数按 8/6 处理）
     expect(() => paipan({ method: 'qian', params: { lines: '111111' } })).toThrow(TypeError);
   });
 });

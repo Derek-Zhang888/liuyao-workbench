@@ -38,7 +38,6 @@ import {
   qiguaFromTime,
   qiguaFromRandom,
   qiguaFromMinuteSecond,
-  qiguaFromShike,
 } from './qigua.js';
 
 /** 五行 -> CSS 颜色变量（对应 styles/theme.css 的 --wuxing-*） */
@@ -96,6 +95,66 @@ function parseLiqin(s) {
   return { liuqin: m[1], zhi: m[2], wuxing: m[3] };
 }
 
+/** 八宫 → 五行（本宫法：变卦六亲以本宫五行为"我"） */
+const GONG_WUXING = { 乾: '金', 兑: '金', 离: '火', 震: '木', 巽: '木', 坎: '水', 艮: '土', 坤: '土' };
+
+/**
+ * 以"我"(wo) 之五行生克地支五行(zhiWx) 定六亲：
+ *   同我=兄，生我=父，我生=孙，克我=官，我克=财
+ */
+function liuqinByWuxing(wo, zhiWx) {
+  if (zhiWx === wo) return '兄';
+  const SHENG_WO = { 土: '火', 金: '土', 水: '金', 木: '水', 火: '木' }; // 生 wo 者
+  const WO_SHENG = { 木: '火', 火: '土', 土: '金', 金: '水', 水: '木' }; // wo 所生
+  const KE_WO = { 木: '金', 火: '水', 土: '木', 金: '火', 水: '土' }; // 克 wo 者
+  if (zhiWx === SHENG_WO[wo]) return '父';
+  if (zhiWx === WO_SHENG[wo]) return '孙';
+  if (zhiWx === KE_WO[wo]) return '官';
+  return '财'; // wo 所克
+}
+
+/** 神煞（卦级）：天乙贵人按日干，驿马/桃花/华盖按年支三合；返回按地支取标签的函数 */
+function computeShensha(dayGZ, yearGZ) {
+  const GUIREN = { 甲: ['丑', '未'], 戊: ['丑', '未'], 庚: ['丑', '未'], 乙: ['子', '申'], 己: ['子', '申'], 丙: ['亥', '酉'], 丁: ['亥', '酉'], 壬: ['卯', '巳'], 癸: ['卯', '巳'], 辛: ['寅', '午'] };
+  const YIMA = { 寅: '申', 午: '申', 戌: '申', 申: '寅', 子: '寅', 辰: '寅', 巳: '亥', 酉: '亥', 丑: '亥', 亥: '巳', 卯: '巳', 未: '巳' };
+  const TAOHUA = { 寅: '卯', 午: '卯', 戌: '卯', 申: '酉', 子: '酉', 辰: '酉', 巳: '午', 酉: '午', 丑: '午', 亥: '子', 卯: '子', 未: '子' };
+  const HUAGAI = { 寅: '戌', 午: '戌', 戌: '戌', 申: '辰', 子: '辰', 辰: '辰', 巳: '丑', 酉: '丑', 丑: '丑', 亥: '未', 卯: '未', 未: '未' };
+  const guiren = new Set(GUIREN[dayGZ[0]] || []);
+  const yima = YIMA[yearGZ[1]];
+  const taohua = TAOHUA[yearGZ[1]];
+  const huagai = HUAGAI[yearGZ[1]];
+  return (zhi) => {
+    const t = [];
+    if (guiren.has(zhi)) t.push('贵');
+    if (zhi === yima) t.push('马');
+    if (zhi === taohua) t.push('桃');
+    if (zhi === huagai) t.push('盖');
+    return t;
+  };
+}
+
+/** 变卦六亲（本宫法）：保留变卦地支/五行，按本宫五行重排六亲前缀 */
+function bianLiuqinBenGong(bianGua, benGongWx) {
+  return bianGua.liuqin.map((s) => {
+    const p = parseLiqin(s);
+    return `${liuqinByWuxing(benGongWx, p.wuxing)}${p.zhi}${p.wuxing}`;
+  });
+}
+
+/** 地支六冲 / 六合（相应位：上-三、五-二、四-初） */
+const CHONG_PAIRS = [['子', '午'], ['丑', '未'], ['寅', '申'], ['卯', '酉'], ['辰', '戌'], ['巳', '亥']];
+const HE_PAIRS = [['子', '丑'], ['寅', '亥'], ['卯', '戌'], ['辰', '酉'], ['巳', '申'], ['午', '未']];
+// liuqin 数组为上→初，相应位索引对：(上,三)=0/3，(五,二)=1/4，(四,初)=2/5
+const XIANGYING = [[0, 3], [1, 4], [2, 5]];
+function hexagramRelation(liuqinArr) {
+  const zhis = liuqinArr.map((s) => parseLiqin(s).zhi);
+  const match = (pairs) =>
+    XIANGYING.every(([a, b]) =>
+      pairs.some(([x, y]) => (zhis[a] === x && zhis[b] === y) || (zhis[a] === y && zhis[b] === x)),
+    );
+  return { liuhe: match(HE_PAIRS), liuchong: match(CHONG_PAIRS) };
+}
+
 /** 按 method 分派到 qigua 模块（params.lines 已存在时不经此路径）。
  *  数字卦子算法 method=1|2 支持两种传法（避免不可达）：
  *    a) paipan({method:'number', params:{n1,n2,n3, method:2}, date}) —— UI 标准用法
@@ -111,12 +170,11 @@ function resolveQigua(method, params, date) {
   const dispatch = {
     qian: () => qiguaFromCoin(params.randomFn),
     yaoming: () => qiguaFromQian(params.lines),
-    guaname: () => qiguaFromGuaName(params.input ?? params.lines),
+    guaname: () => qiguaFromGuaName(params.input ?? params.lines, params.bian),
     baoshu: () => qiguaFromBaoshu(params.digits),
     time: () => qiguaFromTime(date),
     computer: () => qiguaFromRandom(params.randomFn),
     fenmiao: () => qiguaFromMinuteSecond(params.ms, params.ss),
-    shike: () => qiguaFromShike(date),
   };
   const fn = dispatch[method];
   if (!fn) {
@@ -140,7 +198,7 @@ function validateDong(dong) {
 /**
  * 生成完整盘面
  * @param {object} opts
- * @param {string} opts.method 起卦方式 id（qian/yaoming/guaname/number/baoshu/time/computer/fenmiao/shike）
+ * @param {string} opts.method 起卦方式 id（qian/yaoming/guaname/number/baoshu/time/computer/fenmiao）
  * @param {object} [opts.params] 起卦参数；若含 6 位 1/2 爻画 lines 则直接采用（dong 默认 []）
  * @param {Date} opts.date 公历日期（用于干支历法）
  * @returns 盘面对象（结构见文件头注释）
@@ -198,6 +256,7 @@ export function paipan({ method, params = {}, date } = {}) {
   const dayGan = lunar.ganzhiDay[0];
   const start = LIUSHEN_ORDER.indexOf(DAY_GAN_LIUSHEN[dayGan]);
   const liushen = LIUSHEN_ORDER.slice(start).concat(LIUSHEN_ORDER.slice(0, start));
+  const shenshaOf = computeShensha(lunar.ganzhiDay, lunar.ganzhiYear);
 
   // ---- 6. 六爻组装（初→上） ----
   // guaTable.liuqin 为上→初，yao[i] 取 liuqin[5-i]；fushen 按爻位展开（0=初爻），与 yao 索引一致
@@ -214,23 +273,31 @@ export function paipan({ method, params = {}, date } = {}) {
       shi: benGua.shi === i,
       ying: benGua.ying === i,
       fushen: fuRaw ? parseLiqin(fuRaw) : null,
+      shensha: shenshaOf(li.zhi),
       wangshuai: wangshuai(lunar.yuejian, li.wuxing),
     });
   }
 
-  const summary = (g) => ({
-    name: g.name,
-    gong: g.gong,
-    liuqin: [...g.liuqin],
-    shi: g.shi,
-    ying: g.ying,
-    youhun: g.youhun,
-    guihun: g.guihun,
-  });
+  const summary = (g) => {
+    const rel = hexagramRelation(g.liuqin);
+    return {
+      name: g.name,
+      gong: g.gong,
+      liuqin: [...g.liuqin],
+      shi: g.shi,
+      ying: g.ying,
+      youhun: g.youhun,
+      guihun: g.guihun,
+      liuhe: rel.liuhe,
+      liuchong: rel.liuchong,
+    };
+  };
 
   return {
     ben: summary(benGua),
-    bian: bianGua ? summary(bianGua) : null,
+    bian: bianGua
+      ? { ...summary(bianGua), liuqin: bianLiuqinBenGong(bianGua, GONG_WUXING[benGua.gong]) }
+      : null,
     yao,
     liushen,
     yearGZ: lunar.ganzhiYear,
@@ -239,7 +306,9 @@ export function paipan({ method, params = {}, date } = {}) {
     hourGZ: lunar.ganzhiHour,
     xunkong: [...lunar.xunkong],
     yuejian: lunar.yuejian,
+    solarDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    lunarDate: `农历${lunar.year}年${lunar.isLeap ? '闰' : ''}${lunar.month}月${lunar.day}日`,
     guashen: GONG_GUASHEN[benGua.gong],
-    shashen: null, // 测试版暂不实现煞神
+    shashen: null, // 测试版暂不实现煞神（神煞已按爻展示于盘面）
   };
 }

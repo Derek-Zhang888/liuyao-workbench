@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { toLunar, GAN, ZHI, WUXING_GAN, WUXING_ZHI } from './ganzhi';
+import { toLunar, fromLunar, GAN, ZHI, WUXING_GAN, WUXING_ZHI } from './ganzhi';
 
 /**
  * 所有断言值均经过双重验证：
@@ -135,5 +135,31 @@ describe('ganzhi 干支历法', () => {
     expect(toLunar(new Date(2000, 0, 7)).ganzhiDay).toBe('甲子'); // 锚点
     expect(toLunar(new Date(2000, 1, 8)).ganzhiDay).toBe('丙申'); // +32 天
     expect(toLunar(new Date(2000, 2, 8)).ganzhiDay).toBe('乙丑'); // +61 天(60 天循环后余 1)
+  });
+});
+
+describe('fromLunar 农历 → 公历（农历起卦输入）', () => {
+  test('已知日期换算：含闰月与春节', () => {
+    expect(fromLunar(2026, 6, 22)).toEqual({ year: 2026, month: 8, day: 4 }); // 六月廿二
+    expect(fromLunar(2024, 1, 1)).toEqual({ year: 2024, month: 2, day: 10 }); // 甲辰年春节
+    expect(fromLunar(2023, 2, 1, true)).toEqual({ year: 2023, month: 3, day: 22 }); // 癸卯年闰二月初一
+  });
+
+  test('与 toLunar 往返一致（2000-2030 逐周抽样）', () => {
+    for (let t = Date.UTC(2000, 0, 1); t < Date.UTC(2030, 0, 1); t += 7 * 86400000) {
+      const u = new Date(t);
+      const d = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate());
+      const l = toLunar(d);
+      expect(fromLunar(l.year, l.month, l.day, l.isLeap)).toEqual({
+        year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(),
+      });
+    }
+  });
+
+  test('非法输入抛 RangeError', () => {
+    expect(() => fromLunar(1899, 1, 1)).toThrow(RangeError); // 年超界
+    expect(() => fromLunar(2026, 13, 1)).toThrow(RangeError); // 月越界
+    expect(() => fromLunar(2026, 1, 31)).toThrow(RangeError); // 日超过该月天数
+    expect(() => fromLunar(2026, 7, 1, true)).toThrow(RangeError); // 该年无闰七月
   });
 });

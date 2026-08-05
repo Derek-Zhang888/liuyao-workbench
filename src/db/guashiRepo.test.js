@@ -11,8 +11,10 @@ import {
   purgeGuashi,
   purgeExpired,
   replaceAllGuashi,
+  setPurgeAt,
+  effectivePurgeAt,
 } from './guashiRepo.js';
-import { addTag, listTags } from './tagsRepo.js';
+import { addTag, deleteTag, ensureTags, listTags } from './tagsRepo.js';
 import { getSetting, setSetting } from './settingsRepo.js';
 
 /** 构造符合字段设计的卦例 */
@@ -240,6 +242,62 @@ describe('purgeExpired 过期清理', () => {
   });
 });
 
+describe('自定义删除时间', () => {
+  test('softDelete 传入天数写入 purgeAt，不传则为 0（按全局保留天数）', async () => {
+    const custom = await softDelete((await addGuashi(makeGuashi())).id, 2);
+    expect(custom.purgeAt).toBeGreaterThan(Date.now() + 1.9 * 86400000);
+    const plain = await softDelete((await addGuashi(makeGuashi())).id);
+    expect(plain.purgeAt).toBe(0);
+  });
+
+  test('setPurgeAt 写入与清除自定义时间，不存在的 id 返回 undefined', async () => {
+    const g = await addGuashi(makeGuashi());
+    await softDelete(g.id);
+    const at = Date.now() + 5 * 86400000;
+    expect((await setPurgeAt(g.id, at)).purgeAt).toBe(at);
+    expect((await getGuashi(g.id)).purgeAt).toBe(at);
+    // 传 0 / 非法值视为清除自定义
+    expect((await setPurgeAt(g.id, 0)).purgeAt).toBe(0);
+    expect(await setPurgeAt(999999, at)).toBeUndefined();
+  });
+
+  test('effectivePurgeAt：自定义优先，未自定义按 delAt + 天数，未删除返回 0', async () => {
+    const delAt = Date.now();
+    expect(effectivePurgeAt({ deleted: true, delAt, purgeAt: 0 }, 10)).toBe(delAt + 10 * 86400000);
+    expect(effectivePurgeAt({ deleted: true, delAt, purgeAt: 123456 }, 10)).toBe(123456);
+    expect(effectivePurgeAt({ deleted: false, delAt, purgeAt: 0 }, 10)).toBe(0);
+  });
+
+  test('purgeExpired：自定义时间到点即清理，未到点保留（不受全局天数影响）', async () => {
+    await setSetting('recycleDays', 365);
+    // 自定义时间已过 → 清理
+    const due = await addGuashi(makeGuashi({ title: '自定义到期' }));
+    await softDelete(due.id);
+    await setPurgeAt(due.id, Date.now() - 1000);
+    // 自定义时间未到 → 保留
+    const later = await addGuashi(makeGuashi({ title: '自定义未到' }));
+    await softDelete(later.id);
+    await setPurgeAt(later.id, Date.now() + 86400000);
+    // 无自定义、按全局 365 天 → 保留
+    const global = await addGuashi(makeGuashi({ title: '按全局' }));
+    await softDelete(global.id);
+    await updateGuashi({ ...(await getGuashi(global.id)), delAt: Date.now() - 40 * 86400000 });
+
+    expect(await purgeExpired()).toBe(1);
+    expect(await getGuashi(due.id)).toBeUndefined();
+    expect(await getGuashi(later.id)).not.toBeUndefined();
+    expect(await getGuashi(global.id)).not.toBeUndefined();
+  });
+
+  test('restoreGuashi 清除自定义删除时间', async () => {
+    const g = await addGuashi(makeGuashi());
+    await softDelete(g.id, 3);
+    const restored = await restoreGuashi(g.id);
+    expect(restored.purgeAt).toBe(0);
+    expect(restored.deleted).toBe(false);
+  });
+});
+
 describe('tagsRepo 标签', () => {
   test('addTag 自动生成 id，listTags 可见', async () => {
     const t = await addTag({ name: '财运', color: '#f59e0b' });
@@ -258,6 +316,27 @@ describe('tagsRepo 标签', () => {
     expect(list).toHaveLength(2);
     expect(list[0].id).toBe(a.id);
     expect(list[1].id).toBe(b.id);
+  });
+
+  test('deleteTag 只删标签，已保存卦例的 tags 原样保留', async () => {
+    const t = await addTag({ name: '占病', color: '#c0392b' });
+    const g = await addGuashi(makeGuashi({ tags: ['占病', '工作'] }));
+    await deleteTag(t.id);
+    expect(await listTags()).toHaveLength(0);
+    const kept = await getGuashi(g.id);
+    expect(kept).toBeTruthy();
+    expect(kept.tags).toEqual(['占病', '工作']);
+    expect(await listGuashi()).toHaveLength(1);
+  });
+
+  test('ensureTags 只补建缺失的标签（trim/去重/忽略空串）', async () => {
+    await addTag({ name: '工作', color: '#3b82f6' });
+    const created = await ensureTags(['工作', '新标签', ' 新标签 ', '', null, '占病']);
+    expect(created.map((t) => t.name)).toEqual(['新标签', '占病']);
+    expect((await listTags()).map((t) => t.name)).toEqual(['工作', '新标签', '占病']);
+    expect(created.every((t) => typeof t.color === 'string' && t.color)).toBe(true);
+    // 再次调用不重复新建
+    expect(await ensureTags(['工作', '新标签'])).toEqual([]);
   });
 });
 

@@ -8,7 +8,12 @@
 import { CHANGSHENG_STAGES, CHANGSHENG_ROWS } from '../../data/helpData.js'
 import { WUXING_COLOR } from '../../engine/paipan.js'
 
-const DIWANG_IDX = CHANGSHENG_STAGES.indexOf('帝旺')
+const HIGHLIGHT_IDXS = new Set([
+  CHANGSHENG_STAGES.indexOf('长生'),
+  CHANGSHENG_STAGES.indexOf('帝旺'),
+  CHANGSHENG_STAGES.indexOf('墓'),
+  CHANGSHENG_STAGES.indexOf('绝'),
+])
 
 export default function ChangshengPage() {
   return (
@@ -37,7 +42,7 @@ export default function ChangshengPage() {
                 {CHANGSHENG_STAGES.map((s) => (
                   <th
                     key={s}
-                    className={`px-2 py-2 font-normal ${s === '帝旺' ? 'text-gold' : ''}`}
+                    className={`px-2 py-2 font-normal ${HIGHLIGHT_IDXS.has(s) ? 'text-gold' : ''}`}
                   >
                     {s}
                   </th>
@@ -56,7 +61,7 @@ export default function ChangshengPage() {
                   {row.zhis.map((z, i) => (
                     <td
                       key={i}
-                      className={`px-2 py-2 ${i === DIWANG_IDX ? 'bg-goldSoft' : ''}`}
+                      className={`px-2 py-2 ${HIGHLIGHT_IDXS.has(i) ? 'bg-goldSoft' : ''}`}
                       style={{ color: WUXING_COLOR[row.wuxing] }}
                     >
                       {z}

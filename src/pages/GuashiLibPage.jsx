@@ -2,19 +2,21 @@
  * 卦例库页（Task 10）
  *
  * 功能：
- *   - 筛选栏：tag 多选（任一命中）/ 反馈状态单选（全部/未反馈/已反馈）/ 关键字搜索（标题/断语）
+ *   - 筛选栏：tag 多选（任一命中，每个 tag 带 × 删除键：只删标签本身，已保存卦例不受影响）
+ *     / 反馈状态单选（全部/未反馈/已反馈）/ 关键字搜索（标题/断语）
  *   - 卡片列表（GuashiCard，多选批量操作）：点击打开详情/编辑
  *   - 详情/编辑：复用 PanView/DuanInput/TagEditor；盘面用 panSnapshot 优先，无快照按
  *     method/params 重新排盘；保存用 updateGuashi（按 id 覆盖，不新建记录）
  *   - 单条：导出 md（下载）/ 删除（softDelete 进回收站）
  *   - 批量：勾选后「批量导出 md」（逐条下载）/「批量删除」（进回收站）
- *   - 导入：input type=file 多选 .md → mdToGuashi → addGuashi，成功/失败清单提示（含失败原因）
+ *   - 导入：input type=file 多选 .md → mdToGuashi → addGuashi，成功/失败清单提示（含失败原因）；
+ *     md 里的标签若库中不存在，导入时用 ensureTags 自动新建（筛选栏与占断界面随即可用）
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QIGUA_METHODS } from '../engine/qigua.js'
 import { addGuashi, getGuashi, listGuashi, softDelete, updateGuashi } from '../db/guashiRepo.js'
-import { listTags } from '../db/tagsRepo.js'
+import { deleteTag, ensurePresetTags, ensureTags, listTags } from '../db/tagsRepo.js'
 import { mdToGuashi } from '../md/importMd.js'
 import PanView from '../components/PanView.jsx'
 import DuanInput from '../components/DuanInput.jsx'
@@ -69,16 +71,43 @@ export default function GuashiLibPage() {
     }
   }
 
+  /** 重新加载标签表（删除标签 / 导入自动新建后调用） */
+  const refreshTags = async () => {
+    try {
+      setAllTags(await listTags())
+    } catch (e) {
+      /* 标签加载失败不影响列表 */
+    }
+  }
+
   useEffect(() => {
     ;(async () => {
       await refresh()
       try {
-        setAllTags(await listTags())
+        await ensurePresetTags()
       } catch (e) {
-        /* 标签加载失败不影响列表 */
+        /* 种子失败不影响列表 */
       }
+      refreshTags()
     })()
   }, [])
+
+  /** 删除标签：只删标签本身，已保存卦例的 tags 原样保留（Bug #14） */
+  const handleDeleteTag = async (tag) => {
+    if (
+      !window.confirm(`确定删除标签「${tag.name}」吗？\n只删除标签本身，已保存的卦例不会受影响。`)
+    )
+      return
+    try {
+      await deleteTag(tag.id)
+      setSelTags((s) => s.filter((n) => n !== tag.name))
+      setMsg(`已删除标签「${tag.name}」（已保存的卦例不受影响）`)
+      setError('')
+      refreshTags()
+    } catch (e) {
+      setError('删除标签失败：' + e.message)
+    }
+  }
 
   /** 筛选后的展示列表（tag 多选为「任一命中」） */
   const filtered = useMemo(() => {
@@ -175,6 +204,7 @@ export default function GuashiLibPage() {
     if (!files.length) return
     const ok = []
     const fail = []
+    const mdTags = [] // md 里出现过的标签名，导入后统一补建
     for (const f of files) {
       try {
         const text = await f.text()
@@ -184,13 +214,29 @@ export default function GuashiLibPage() {
           continue
         }
         await addGuashi(res.guashi)
+        mdTags.push(...(Array.isArray(res.guashi.tags) ? res.guashi.tags : []))
         ok.push(f.name)
       } catch (err) {
         fail.push({ name: f.name, error: err.message })
       }
     }
+    // md 里的标签若库中不存在则自动新建（卦例库筛选栏与占断界面随即可用）
+    let created = []
+    try {
+      created = await ensureTags(mdTags)
+      if (created.length) refreshTags()
+    } catch (e) {
+      /* 标签补建失败不影响卦例导入 */
+    }
     setImportResult({ ok: ok.length, fail })
-    setMsg(ok.length ? `成功导入 ${ok.length} 条卦例` : '')
+    setMsg(
+      ok.length
+        ? `成功导入 ${ok.length} 条卦例` +
+            (created.length
+              ? `，自动新建 ${created.length} 个标签：${created.map((t) => t.name).join('、')}`
+              : '')
+        : '',
+    )
     setError('')
     e.target.value = '' // 允许重复选择同一文件
     refresh()
@@ -345,23 +391,38 @@ export default function GuashiLibPage() {
               {allTags.map((t) => {
                 const on = selTags.includes(t.name)
                 return (
-                  <button
+                  <span
                     key={t.id}
-                    type="button"
-                    onClick={() =>
-                      setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))
-                    }
-                    className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors"
+                    className="flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors"
                     style={{
                       borderColor: on ? t.color : 'var(--border)',
                       color: on ? t.color : 'var(--muted)',
                       background: on ? t.color + '1f' : 'transparent',
                     }}
                   >
-                    <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
-                    {t.name}
-                    {on && <span className="text-xs">✓</span>}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))
+                      }
+                      className="flex items-center gap-1.5"
+                      style={{ color: 'inherit' }}
+                      title={on ? '取消筛选' : '按此标签筛选'}
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
+                      {t.name}
+                      {on && <span className="text-xs">✓</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTag(t)}
+                      className="ml-0.5 rounded-full px-1 text-xs leading-none text-muted transition-colors hover:bg-red/10 hover:text-red"
+                      title={`删除标签「${t.name}」（不影响已保存的卦例）`}
+                      aria-label={`删除标签 ${t.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
                 )
               })}
             </div>

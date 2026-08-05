@@ -1,9 +1,20 @@
 /**
  * 预置标签列表（Task 9）
- * 首次使用 TagEditor 时自动写入 tags 表（见 TagEditor 的种子逻辑）；
- * 此处仅作为初始配置，用户可在设置页（Task 13）后续增删。
+ * 首次使用时自动写入 tags 表（见 tagsRepo.ensurePresetTags，仅种子一次）；
+ * 之后一律以 tags 表为准：用户删除的预置标签不会被再次种回。
  * 颜色取暗色主题友好色（Tailwind 风格十六进制，可直接用于 inline style）。
  */
+/** 自定义/自动新建标签的默认色板（按序号循环取色） */
+export const TAG_PALETTE = [
+  '#22d3ee', '#f87171', '#facc15', '#34d399', '#60a5fa',
+  '#f97316', '#e879f9', '#a78bfa', '#fbbf24', '#e5e7eb',
+];
+
+/** 按序号取色（循环） */
+export function paletteColor(i) {
+  return TAG_PALETTE[((i % TAG_PALETTE.length) + TAG_PALETTE.length) % TAG_PALETTE.length];
+}
+
 export const PRESET_TAGS = [
   { name: '占病', color: '#c0392b' },
   { name: '占财运', color: '#d4af37' },

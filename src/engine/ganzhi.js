@@ -4,6 +4,7 @@
  * 纯函数模块，无 DOM 依赖。接口：
  *   toLunar(date) -> { year, month, day, isLeap, ganzhiYear, ganzhiMonth,
  *                      ganzhiDay, ganzhiHour, xunkong:[地支,地支], yuejian }
+ *   fromLunar(y, m, d, isLeap) -> { year, month, day }（农历 -> 公历，toLunar 逆运算）
  *   GAN / ZHI / WUXING_GAN / WUXING_ZHI
  *
  * 算法说明：
@@ -160,4 +161,39 @@ export function toLunar(date) {
     xunkong,
     yuejian,
   };
+}
+
+/**
+ * 农历 -> 公历年月日（toLunar 的逆运算，用于「农历起卦」时间输入）
+ * @param {number} year 农历年（1900-2100）
+ * @param {number} month 农历月 1-12
+ * @param {number} day 农历日 1-30
+ * @param {boolean} [isLeap] 是否闰月
+ * @returns {{year:number, month:number, day:number}} 公历年月日
+ */
+export function fromLunar(year, month, day, isLeap = false) {
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) {
+    throw new RangeError(`农历年超出数据范围（1900-2100）：${year}`);
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new RangeError(`农历月须为 1-12：${month}`);
+  }
+  const lm = leapMonth(year);
+  if (isLeap && lm !== month) {
+    throw new RangeError(`农历 ${year} 年没有闰 ${month} 月`);
+  }
+  const maxDay = isLeap ? leapDays(year) : monthDays(year, month);
+  if (!Number.isInteger(day) || day < 1 || day > maxDay) {
+    throw new RangeError(`农历 ${year} 年${isLeap ? '闰' : ''}${month} 月只有 ${maxDay} 天：${day}`);
+  }
+  let offset = 0;
+  for (let y = 1900; y < year; y++) offset += yearDays(y);
+  for (let m = 1; m < month; m++) {
+    offset += monthDays(year, m);
+    if (m === lm) offset += leapDays(year);
+  }
+  if (isLeap) offset += monthDays(year, month);
+  offset += day - 1;
+  const d = new Date((ANCHOR_CNY + offset) * 86400000);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }

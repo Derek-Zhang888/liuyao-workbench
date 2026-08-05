@@ -6,7 +6,8 @@
  *   panSnapshot, // 盘面快照 JSON（可选，UI 层存）
  *   duanyu:'', yingqi:'', jixiong:'', beizhu:'', fankui:'',
  *   status: '未反馈'|'已反馈', jixiongOk:'', yingqiOk:'', fangweiOk:'', // ''|'对'|'错'
- *   tags: [], createdAt, updatedAt, deleted: false, delAt: 0
+ *   tags: [], createdAt, updatedAt, deleted: false, delAt: 0,
+ *   purgeAt: 0 // 自定义彻底删除时间（时间戳 ms），0 表示按 settings.recycleDays 计算
  * }
  */
 import { openDB, reqToPromise, txDone, nextId } from './index.js';
@@ -24,7 +25,30 @@ function withDefaults(g) {
     updatedAt: g.updatedAt ?? Date.now(),
     deleted: g.deleted ?? false,
     delAt: g.delAt ?? 0,
+    purgeAt: g.purgeAt ?? 0,
   };
+}
+
+/** 归一化自定义删除时间：正数时间戳保留，其余（0/null/NaN/负数）视为未自定义 */
+function normalizePurgeAt(at) {
+  const n = Number(at);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+/**
+ * 计算一条卦例实际被彻底删除的时间点。
+ * 自定义 purgeAt 优先；未自定义时按 delAt + 保留天数。
+ * @param {object} rec 卦例记录
+ * @param {number} days 全局保留天数（settings.recycleDays）
+ * @returns {number} 时间戳 ms；0 表示不会被自动清理（未删除或无 delAt）
+ */
+export function effectivePurgeAt(rec, days) {
+  if (!rec || !rec.deleted) return 0;
+  const custom = normalizePurgeAt(rec.purgeAt);
+  if (custom) return custom;
+  if (!rec.delAt) return 0;
+  const d = Number(days);
+  return rec.delAt + (Number.isFinite(d) && d > 0 ? d : 30) * DAY_MS;
 }
 
 /** 新增卦例，返回落库后的完整记录 */
@@ -78,22 +102,37 @@ export async function listGuashi({ status, tag, keyword, deleted = false } = {})
 
 /**
  * 软删除：置 deleted=true + delAt=Date.now()
- * 保留天数由 purgeExpired 时按 settings.recycleDays（默认 30）统一计算，
- * 记录上不落天数字段。
+ * 不传 days 时保留天数由 purgeExpired 按 settings.recycleDays（默认 30）统一计算；
+ * 传入正数 days 则为该条记录写入自定义删除时间 purgeAt=now+days*86400000。
  * @param {number|string} id
- * @param {number} [days] 接口兼容参数（brief 签名保留），实际按 settings 计算
+ * @param {number} [days] 自定义保留天数（可选）
  */
-export async function softDelete(id, _days) {
+export async function softDelete(id, days) {
   const rec = await getGuashi(id);
   if (!rec) return undefined;
-  return updateGuashi({ ...rec, deleted: true, delAt: Date.now() });
+  const now = Date.now();
+  const d = Number(days);
+  const purgeAt = Number.isFinite(d) && d > 0 ? now + d * DAY_MS : 0;
+  return updateGuashi({ ...rec, deleted: true, delAt: now, purgeAt });
 }
 
-/** 恢复：deleted=false + delAt=0 */
+/**
+ * 设置回收站单条卦例的自定义彻底删除时间
+ * @param {number|string} id
+ * @param {number} at 时间戳 ms；传 0/null 表示清除自定义，回到全局保留天数
+ * @returns {Promise<object|undefined>} 更新后的记录，记录不存在返回 undefined
+ */
+export async function setPurgeAt(id, at) {
+  const rec = await getGuashi(id);
+  if (!rec) return undefined;
+  return updateGuashi({ ...rec, purgeAt: normalizePurgeAt(at) });
+}
+
+/** 恢复：deleted=false + delAt=0，同时清除自定义删除时间 */
 export async function restoreGuashi(id) {
   const rec = await getGuashi(id);
   if (!rec) return undefined;
-  return updateGuashi({ ...rec, deleted: false, delAt: 0 });
+  return updateGuashi({ ...rec, deleted: false, delAt: 0, purgeAt: 0 });
 }
 
 /** 彻底删除一条卦例 */
@@ -143,8 +182,8 @@ export async function replaceAllGuashi(items) {
 }
 
 /**
- * 清理回收站中已过期的卦例：delAt + recycleDays*86400000 < now
- * recycleDays 从 settings 读，默认 30
+ * 清理回收站中已过期的卦例：到达 effectivePurgeAt（自定义删除时间优先，
+ * 否则 delAt + recycleDays*86400000）即彻底删除。recycleDays 从 settings 读，默认 30
  * @returns {Promise<number>} 清理条数
  */
 export async function purgeExpired() {
@@ -156,7 +195,8 @@ export async function purgeExpired() {
   const now = Date.now();
   let count = 0;
   for (const r of all) {
-    if (r.deleted && r.delAt && r.delAt + days * DAY_MS < now) {
+    const at = effectivePurgeAt(r, days);
+    if (at && at < now) {
       await reqToPromise(store.delete(r.id));
       count++;
     }

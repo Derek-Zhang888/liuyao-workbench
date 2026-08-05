@@ -1,23 +1,26 @@
 /**
  * 起卦方式选择器（Task 9）
  *
- * 9 种起卦方式 Tab + 各自输入区；点「起卦」按钮后：
+ * 8 种起卦方式 Tab + 各自输入区；点「起卦」按钮后：
  *   校验输入 → 调对应 qiguaFromXxx → onStart({method, params, date, lines, dong})
  *
  * params 与 md 导出序列化规则（exportMd 的 PARAMS_SERIALIZER）对齐，直接存对象形态：
  *   qian/computer : { lines: 6位1/2爻画, dong: 动爻索引 }（随机结果一次性生成，避免重排盘时二次随机）
  *   yaoming       : { lines: 6位1-4字符串 }（1阳 2阴 3老阳 4老阴，动爻由引擎推导）
- *   guaname       : { input: 卦名 } 或 { lines: 6位1/2爻画 }
+ *   guaname       : { input: 本卦名 } 或 { input: 本卦名, bian: 变卦名 }（相异爻位为动爻）
  *   number        : { n1, n2, n3, method: 1|2 }
  *   baoshu        : { digits }
- *   time / shike  : { date: Date }（起卦时刻）
+ *   time          : { date: Date }（起卦时刻）
  *   fenmiao       : { ms, ss }
  *
- * date 说明：time/shike 用用户所选起卦时刻；其余方法用点击「起卦」时刻 new Date()。
+ * date 说明：所有起卦方式共用顶部「起卦时间」（新历 datetime-local / 农历年月日+时分），
+ *   默认为当前时刻；该时间同时用于排盘的干支历法与卦例记录的时间。
  */
 import { useState } from 'react'
 import {
   QIGUA_METHODS,
+  findGuaByName,
+  searchGuaByName,
   qiguaFromQian,
   qiguaFromCoin,
   qiguaFromGuaName,
@@ -26,21 +29,19 @@ import {
   qiguaFromTime,
   qiguaFromRandom,
   qiguaFromMinuteSecond,
-  qiguaFromShike,
 } from '../engine/qigua.js'
+import { toLunar, fromLunar } from '../engine/ganzhi.js'
 
 const METHOD_MAP = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m]))
 
 /** 爻位名（初爻→上爻） */
 const LINE_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
 
-/** 钱币卦爻型 → 正面枚数（2正=少阳 1正=少阴 3正=老阳 0正=老阴） */
-const QIAN_TYPES = [
-  { v: '少阳', heads: 2 },
-  { v: '少阴', heads: 1 },
-  { v: '老阳', heads: 3 },
-  { v: '老阴', heads: 0 },
-]
+/** 钱币卦默认面值（每爻三枚，正面枚数决定爻型；两正=少阳） */
+const defaultCoinFaces = () => Array.from({ length: 6 }, () => ['正', '正', '背'])
+
+/** 正面枚数 → 爻型名（与 qiguaFromCoin 的 HEADS_TO_VALUE 一致） */
+const HEADS_LABEL = ['老阴', '少阴', '少阳', '老阳']
 
 /** 爻名卦爻型：1阳 2阴 3老阳 4老阴 */
 const YAO_TYPES = [
@@ -62,6 +63,20 @@ function nowLocal() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/** 当前时刻 → 农历输入初值 { year, month, day, isLeap, hm } */
+function nowLunar() {
+  const d = new Date()
+  const l = toLunar(d)
+  const p = (n) => String(n).padStart(2, '0')
+  return {
+    year: String(l.year),
+    month: String(l.month),
+    day: String(l.day),
+    isLeap: l.isLeap,
+    hm: `${p(d.getHours())}:${p(d.getMinutes())}`,
+  }
+}
+
 const tabCls = (active) =>
   `rounded-md px-3 py-1.5 text-sm transition-colors ${
     active ? 'bg-goldSoft text-gold' : 'text-muted hover:bg-bg hover:text-text'
@@ -72,6 +87,77 @@ const modeCls = (active) =>
 
 const inputCls =
   'rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none transition-colors focus:border-gold'
+
+/** 钱币正/背切换按钮 */
+const faceCls = (face) =>
+  `w-8 rounded border px-0 py-0.5 text-xs transition-colors ${
+    face === '正' ? 'border-gold bg-goldSoft text-gold' : 'border-border bg-bg text-muted hover:text-text'
+  }`
+
+/**
+ * 关键词 → 唯一卦：先精确匹配（全名 / 八纯卦单字 / 去「为」简称），
+ * 再退化为模糊匹配且仅命中一条时采用；否则返回 null（需用户从候选中点选）
+ */
+function resolveGua(keyword) {
+  const k = keyword.trim()
+  if (!k) return null
+  const exact = findGuaByName(k)
+  if (exact) return exact
+  const list = searchGuaByName(k, 0)
+  return list.length === 1 ? list[0] : null
+}
+
+/** 卦名模糊搜索输入框：输入关键词 → 候选下拉 → 点选填入 */
+function GuaNameSearch({ label, value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false)
+  const kw = value.trim()
+  const hit = resolveGua(kw)
+  const list = searchGuaByName(kw, 8)
+  const showList = open && kw !== '' && !(hit && hit.name === kw)
+  return (
+    <div className="relative w-full max-w-[15rem]">
+      <div className="mb-1.5 text-xs text-muted">{label}</div>
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        placeholder={placeholder}
+        className={`${inputCls} w-full`}
+      />
+      {showList && (
+        <ul className="absolute left-0 right-0 z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-panel py-1">
+          {list.length === 0 ? (
+            <li className="px-3 py-1.5 text-xs text-muted">无匹配卦名</li>
+          ) : (
+            list.map((g) => (
+              <li key={g.name}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()} // 保持焦点，避免 blur 早于 click
+                  onClick={() => { onChange(g.name); setOpen(false) }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-text transition-colors hover:bg-goldSoft hover:text-gold"
+                >
+                  <span>{g.name}</span>
+                  <span className="text-xs text-muted">{g.gong}宫</span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+      <div className="mt-1 h-4 text-xs">
+        {kw === '' ? (
+          <span className="text-muted">&nbsp;</span>
+        ) : hit ? (
+          <span className="text-gold">✓ {hit.name}</span>
+        ) : (
+          <span className="text-muted">共 {list.length} 条候选，请点选</span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /** 暗色下拉选择器；options: [{v, label}] */
 function Select({ name, value, onChange, options, className = 'w-24' }) {
@@ -95,16 +181,20 @@ export default function QiguaSelector({ onStart }) {
   const [method, setMethod] = useState('qian')
   const [error, setError] = useState('')
 
-  // —— 钱币卦 ——
-  const [qianMode, setQianMode] = useState('interact') // interact 交互摇 / direct 直接输入
-  const [coinSeq, setCoinSeq] = useState([]) // 交互摇卦：正面枚数序列（0-3）
-  const [qianSpins, setQianSpins] = useState(Array(6).fill('少阳')) // 直接输入
+  // —— 起卦时间（所有起卦方式共用）——
+  const [dateMode, setDateMode] = useState('solar') // solar 新历 / lunar 农历
+  const [dt, setDt] = useState(nowLocal())
+  const [lunar, setLunar] = useState(nowLunar())
+
+  // —— 钱币卦：六爻各三枚钱币的正/背面（如初爻「背正正」）——
+  const [coinFaces, setCoinFaces] = useState(defaultCoinFaces)
 
   // —— 爻名卦 ——
   const [yaoSpins, setYaoSpins] = useState(Array(6).fill('1'))
 
-  // —— 卦名卦 ——
-  const [guaInput, setGuaInput] = useState('')
+  // —— 卦名卦：本卦 / 变卦 分开模糊搜索（变卦选填，相异爻位即动爻）——
+  const [guaBen, setGuaBen] = useState('')
+  const [guaBian, setGuaBian] = useState('')
 
   // —— 数字卦 ——
   const [num1, setNum1] = useState('')
@@ -114,9 +204,6 @@ export default function QiguaSelector({ onStart }) {
 
   // —— 报数卦 ——
   const [digits, setDigits] = useState('')
-
-  // —— 时间卦 / 时刻卦 ——
-  const [dt, setDt] = useState(nowLocal())
 
   // —— 电脑卦 ——
   const [compMode, setCompMode] = useState('interact') // interact 逐爻随机 / direct 一键随机
@@ -128,6 +215,20 @@ export default function QiguaSelector({ onStart }) {
 
   const meta = METHOD_MAP[method]
 
+  /** 卦名卦：本卦与变卦均已确定时预览动爻（爻画相异的爻位），未确定返回 null */
+  const guaDongPreview = (() => {
+    const ben = resolveGua(guaBen)
+    const bian = guaBian.trim() ? resolveGua(guaBian) : null
+    if (!ben || !bian) return null
+    const idx = []
+    for (let i = 0; i < 6; i++) {
+      if (ben.lines[i] !== bian.lines[i]) idx.push(i)
+    }
+    return idx.length === 0
+      ? '本卦与变卦相同，无动爻。'
+      : `动爻：${idx.map((i) => LINE_NAMES[i]).join('、')}。`
+  })()
+
   const switchMethod = (id) => {
     setMethod(id)
     setError('')
@@ -135,34 +236,47 @@ export default function QiguaSelector({ onStart }) {
 
   const setSpin = (arr, setArr, i) => (v) => setArr(arr.map((x, j) => (j === i ? v : x)))
 
-  /** 摇一爻（钱币卦交互模式） */
-  const rollCoin = () => {
-    setCoinSeq((s) => (s.length >= 6 ? s : [...s, Math.floor(Math.random() * 4)]))
-  }
+  /** 切换第 i 爻第 j 枚钱币的正/背 */
+  const toggleFace = (i, j) =>
+    setCoinFaces((fs) =>
+      fs.map((row, ri) => (ri === i ? row.map((f, fi) => (fi === j ? (f === '正' ? '背' : '正') : f)) : row)),
+    )
 
   /** 随机一爻（电脑卦交互模式） */
   const rollComputer = () => {
     setCompSeq((s) => (s.length >= 6 ? s : [...s, Math.random()]))
   }
 
+  /** 起卦时间输入 → Date（新历 / 农历两种模式），非法时抛错 */
+  const resolveDate = () => {
+    if (dateMode === 'solar') {
+      if (!dt) throw new Error('请选择起卦日期时间')
+      const d = new Date(dt)
+      if (Number.isNaN(d.getTime())) throw new Error('起卦日期时间格式不正确')
+      return d
+    }
+    const y = Number(lunar.year)
+    const m = Number(lunar.month)
+    const dd = Number(lunar.day)
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(dd)) {
+      throw new Error('请输入完整的农历年、月、日')
+    }
+    const [hh, mm] = String(lunar.hm || '00:00').split(':').map(Number)
+    if (!Number.isInteger(hh) || !Number.isInteger(mm)) throw new Error('请输入正确的时刻（时:分）')
+    const s = fromLunar(y, m, dd, lunar.isLeap) // 非法农历日期由 fromLunar 抛 RangeError
+    return new Date(s.year, s.month - 1, s.day, hh, mm)
+  }
+
   /** 执行起卦：校验 → qiguaFromXxx → onStart */
   const doQiGua = () => {
     setError('')
     try {
+      const date = resolveDate() // 所有起卦方式共用所选起卦时间
       let params = {}
-      let date = new Date() // 非时间类方法：起卦时刻
       let result
       switch (method) {
         case 'qian': {
-          let heads
-          if (qianMode === 'interact') {
-            if (coinSeq.length !== 6) {
-              throw new Error(`请先摇满 6 爻（已摇 ${coinSeq.length}/6）`)
-            }
-            heads = coinSeq
-          } else {
-            heads = qianSpins.map((s) => QIAN_TYPES.find((t) => t.v === s).heads)
-          }
+          const heads = coinFaces.map((row) => row.filter((f) => f === '正').length)
           let i = 0
           result = qiguaFromCoin(() => heads[i++])
           params = { lines: result.lines, dong: result.dong }
@@ -174,10 +288,16 @@ export default function QiguaSelector({ onStart }) {
           break
         }
         case 'guaname': {
-          const input = guaInput.trim()
-          if (!input) throw new Error('请输入卦名（如「乾为天」）或 6 位爻画')
-          result = qiguaFromGuaName(input)
-          params = /^[12]{6}$/.test(input) ? { lines: input } : { input }
+          if (!guaBen.trim()) throw new Error('请搜索并选择本卦卦名（如「乾为天」）')
+          const ben = resolveGua(guaBen)
+          if (!ben) throw new Error(`本卦「${guaBen.trim()}」匹配到多个或无匹配，请从候选中点选`)
+          let bian = null
+          if (guaBian.trim()) {
+            bian = resolveGua(guaBian)
+            if (!bian) throw new Error(`变卦「${guaBian.trim()}」匹配到多个或无匹配，请从候选中点选`)
+          }
+          result = qiguaFromGuaName(ben.name, bian?.name)
+          params = bian ? { input: ben.name, bian: bian.name } : { input: ben.name }
           break
         }
         case 'number': {
@@ -203,8 +323,6 @@ export default function QiguaSelector({ onStart }) {
           break
         }
         case 'time': {
-          if (!dt) throw new Error('请选择起卦日期时间')
-          date = new Date(dt)
           params = { date }
           result = qiguaFromTime(date)
           break
@@ -236,13 +354,6 @@ export default function QiguaSelector({ onStart }) {
           result = qiguaFromMinuteSecond(ms, ss)
           break
         }
-        case 'shike': {
-          if (!dt) throw new Error('请选择起卦日期时间')
-          date = new Date(dt)
-          params = { date }
-          result = qiguaFromShike(date)
-          break
-        }
         default:
           throw new Error(`未知起卦方式：${method}`)
       }
@@ -259,6 +370,87 @@ export default function QiguaSelector({ onStart }) {
         <p className="text-xs text-muted">{meta.desc}</p>
       </div>
 
+      {/* 起卦时间（所有起卦方式共用） */}
+      <div className="mb-4 space-y-2 rounded-lg border border-border bg-bg p-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-muted">起卦时间</span>
+          <button type="button" onClick={() => { setDateMode('solar'); setError('') }} className={modeCls(dateMode === 'solar')}>
+            新历
+          </button>
+          <button type="button" onClick={() => { setDateMode('lunar'); setError('') }} className={modeCls(dateMode === 'lunar')}>
+            农历
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDt(nowLocal()); setLunar(nowLunar()); setError('') }}
+            className="text-xs text-muted hover:text-gold"
+          >
+            用当前时间
+          </button>
+        </div>
+        {dateMode === 'solar' ? (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <input
+              type="datetime-local"
+              value={dt}
+              onChange={(e) => setDt(e.target.value)}
+              className={`${inputCls} w-full max-w-xs [color-scheme:dark]`}
+            />
+            <span className="text-xs text-muted">默认当前时刻，可指定任意公历日期时间</span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5 text-muted">
+              <input
+                type="number"
+                value={lunar.year}
+                onChange={(e) => setLunar({ ...lunar, year: e.target.value })}
+                className={`${inputCls} w-24`}
+              />
+              年
+            </label>
+            <label className="flex items-center gap-1.5 text-muted">
+              <input
+                type="number"
+                min="1"
+                max="12"
+                value={lunar.month}
+                onChange={(e) => setLunar({ ...lunar, month: e.target.value })}
+                className={`${inputCls} w-16`}
+              />
+              月
+            </label>
+            <label className="flex items-center gap-1.5 text-muted">
+              <input
+                type="number"
+                min="1"
+                max="30"
+                value={lunar.day}
+                onChange={(e) => setLunar({ ...lunar, day: e.target.value })}
+                className={`${inputCls} w-16`}
+              />
+              日
+            </label>
+            <label className="flex items-center gap-1.5 text-muted">
+              <input
+                type="checkbox"
+                checked={lunar.isLeap}
+                onChange={(e) => setLunar({ ...lunar, isLeap: e.target.checked })}
+                className="accent-gold"
+              />
+              闰月
+            </label>
+            <input
+              type="time"
+              value={lunar.hm}
+              onChange={(e) => setLunar({ ...lunar, hm: e.target.value })}
+              className={`${inputCls} w-28 [color-scheme:dark]`}
+            />
+            <span className="w-full text-xs text-muted">农历日期将换算为公历后排盘（1900-2100 年）</span>
+          </div>
+        )}
+      </div>
+
       {/* 方式 Tab */}
       <div className="mb-4 flex flex-wrap gap-1.5">
         {QIGUA_METHODS.map((m) => (
@@ -270,62 +462,42 @@ export default function QiguaSelector({ onStart }) {
 
       {/* 各方式输入区 */}
       <div className="space-y-4">
-        {/* 钱币卦 */}
+        {/* 钱币卦：逐爻输入三枚钱币的正/背面 */}
         {method === 'qian' && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="text-muted">模式</span>
-              <button type="button" onClick={() => { setQianMode('interact'); setError('') }} className={modeCls(qianMode === 'interact')}>
-                交互摇卦
-              </button>
-              <button type="button" onClick={() => { setQianMode('direct'); setError('') }} className={modeCls(qianMode === 'direct')}>
-                直接输入
-              </button>
-            </div>
-            {qianMode === 'interact' ? (
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <button
-                  type="button"
-                  onClick={rollCoin}
-                  disabled={coinSeq.length >= 6}
-                  className="rounded-md border border-gold px-4 py-1.5 text-gold transition-colors hover:bg-goldSoft disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  摇一爻
-                </button>
-                <span className="text-muted">
-                  已摇 <span className="text-gold">{coinSeq.length}</span>/6 次
-                </span>
-                {coinSeq.length > 0 && (
-                  <>
-                    <span className="flex flex-wrap items-center gap-1">
-                      {coinSeq.map((h, i) => (
-                        <span key={i} className="rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-gold" title={`第 ${i + 1} 爻`}>
-                          {QIAN_TYPES.find((t) => t.heads === h).v}
-                        </span>
-                      ))}
-                    </span>
-                    <button type="button" onClick={() => setCoinSeq([])} className="text-xs text-muted hover:text-red">
-                      重摇
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                {qianSpins.map((s, i) => (
+          <div className="space-y-2">
+            <p className="text-xs text-muted">
+              点击切换每枚钱币的正/背面（如初爻「背正正」）：三正=老阳（动）、两正=少阳、一正=少阴、零正=老阴（动）
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              {coinFaces.map((row, i) => {
+                const heads = row.filter((f) => f === '正').length
+                return (
                   <div key={i} className="flex items-center gap-1.5">
                     <span className="text-xs text-muted">{LINE_NAMES[i]}</span>
-                    <Select
-                      name={`qian-${i}`}
-                      value={s}
-                      onChange={setSpin(qianSpins, setQianSpins, i)}
-                      options={QIAN_TYPES.map((t) => ({ v: t.v, label: t.v }))}
-                      className="w-20"
-                    />
+                    {row.map((f, j) => (
+                      <button
+                        key={j}
+                        type="button"
+                        name={`coin-${i}-${j}`}
+                        onClick={() => toggleFace(i, j)}
+                        className={faceCls(f)}
+                        title={`第 ${i + 1} 爻第 ${j + 1} 枚：${f}面`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                    <span className="text-xs text-gold">{HEADS_LABEL[heads]}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                )
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCoinFaces(defaultCoinFaces())}
+              className="text-xs text-muted hover:text-red"
+            >
+              重置
+            </button>
           </div>
         )}
 
@@ -341,16 +513,17 @@ export default function QiguaSelector({ onStart }) {
           </div>
         )}
 
-        {/* 卦名卦 */}
+        {/* 卦名卦：本卦 / 变卦 分开模糊搜索 */}
         {method === 'guaname' && (
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <input
-              value={guaInput}
-              onChange={(e) => setGuaInput(e.target.value)}
-              placeholder="如：乾为天 / 天风姤 / 211111"
-              className={`${inputCls} w-full max-w-xs`}
-            />
-            <span className="text-xs text-muted">支持 64 卦名、八纯卦单字（如「坎」）或 6 位爻画（1阳 2阴），无动爻</span>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-start gap-3 text-sm">
+              <GuaNameSearch label="本卦" value={guaBen} onChange={setGuaBen} placeholder="输入关键词，如「天」「同人」" />
+              <GuaNameSearch label="变卦（选填）" value={guaBian} onChange={setGuaBian} placeholder="留空则无动爻" />
+            </div>
+            <p className="text-xs text-muted">
+              输入部分卦名即可模糊匹配（如「天」匹配天风姤、天火同人…），也可输入八纯卦单字（如「坎」）；
+              {guaDongPreview ?? '选定变卦后，与本卦爻画相异的爻位自动记为动爻。'}
+            </p>
           </div>
         )}
 
@@ -387,21 +560,9 @@ export default function QiguaSelector({ onStart }) {
           </div>
         )}
 
-        {/* 时间卦 / 时刻卦 */}
-        {(method === 'time' || method === 'shike') && (
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <input
-              type="datetime-local"
-              value={dt}
-              onChange={(e) => setDt(e.target.value)}
-              className={`${inputCls} w-full max-w-xs [color-scheme:dark]`}
-            />
-            <span className="text-xs text-muted">
-              {method === 'time'
-                ? '以农历年支、月、日、时辰序起卦（年月日时法）'
-                : '以农历月、日、时辰序、刻序起卦（一时辰 8 刻，每刻 15 分钟）'}
-            </span>
-          </div>
+        {/* 时间卦：直接取上方所选起卦时间 */}
+        {method === 'time' && (
+          <p className="text-sm text-muted">以上方所选起卦时间的农历年支、月、日、时辰序起卦（年月日时法）</p>
         )}
 
         {/* 电脑卦 */}

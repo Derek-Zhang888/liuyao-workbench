@@ -67,6 +67,54 @@ export default function PaipanPage() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
+  // ---- 状态持久化：跨导航保留起盘结果 ----
+  const SESSION_KEY = 'liuyao-paipan-state'
+
+  /** 将当前状态存入 sessionStorage（pan 变化时自动触发） */
+  useEffect(() => {
+    if (pan) {
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+          method, params, qiguaDate: qiguaDate?.toISOString(),
+          title, duan, tags, saved,
+        }))
+      } catch (_) { /* 容量不足时静默失败 */ }
+    }
+  }, [pan, method, params, qiguaDate, title, duan, tags, saved])
+
+  /** 组件挂载时从 sessionStorage 恢复状态 */
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY)
+      if (!raw) return
+      const s = JSON.parse(raw)
+      // 仅恢复状态标记，不重新计算 pan（pan 需要重新调用 paipan）
+      if (s.method && s.params) {
+        try {
+          const restoredPan = paipan({
+            method: s.method,
+            params: s.params,
+            date: s.qiguaDate ? new Date(s.qiguaDate) : new Date(),
+          })
+          setPan(restoredPan)
+          setMethod(s.method)
+          setParams(s.params)
+          setQiguaDate(s.qiguaDate ? new Date(s.qiguaDate) : new Date())
+        } catch (_) { /* 恢复失败时静默，用户可重新起卦 */ }
+      }
+      setTitle(s.title ?? '')
+      setDuan(s.duan ? { ...EMPTY_DUAN, ...s.duan } : { ...EMPTY_DUAN })
+      setTags(Array.isArray(s.tags) ? s.tags : [])
+      setSaved(s.saved ?? null)
+    } catch (_) { /* 解析失败时静默 */ }
+  }, []) // 仅挂载时执行一次
+
+  /** 恢复默认（清除持久化状态并重置所有字段） */
+  const handleRestoreDefault = () => {
+    sessionStorage.removeItem(SESSION_KEY)
+    handleReset()
+  }
+
   const refreshHistory = async () => {
     try {
       const list = await listGuashi()
@@ -249,6 +297,14 @@ export default function PaipanPage() {
               className="rounded-md border border-border px-5 py-2 text-sm text-muted transition-colors hover:text-text"
             >
               重新起卦
+            </button>
+            <button
+              type="button"
+              onClick={handleRestoreDefault}
+              title="清除记忆并恢复默认值"
+              className="rounded-md border border-border px-5 py-2 text-sm text-muted transition-colors hover:text-text"
+            >
+              恢复默认
             </button>
             {saved && (
               <button

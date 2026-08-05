@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   qiguaFromQian, qiguaFromCoin, qiguaFromGuaName, qiguaFromNumber,
   qiguaFromBaoshu, qiguaFromTime, qiguaFromRandom, qiguaFromMinuteSecond,
-  qiguaFromShike, QIGUA_METHODS,
+  QIGUA_METHODS,
 } from './qigua';
 
 /**
@@ -19,15 +19,15 @@ import {
  */
 
 describe('QIGUA_METHODS 配置', () => {
-  test('9 项配置，id/name 与简报一致', () => {
-    expect(QIGUA_METHODS).toHaveLength(9);
+  test('8 项配置，id/name 与简报一致（时刻卦已移除）', () => {
+    expect(QIGUA_METHODS).toHaveLength(8);
     expect(QIGUA_METHODS.map((m) => m.id)).toEqual([
       'qian', 'yaoming', 'guaname', 'number', 'baoshu',
-      'time', 'computer', 'fenmiao', 'shike',
+      'time', 'computer', 'fenmiao',
     ]);
     expect(QIGUA_METHODS.map((m) => m.name)).toEqual([
       '钱币卦', '爻名卦', '卦名卦', '数字卦', '报数卦',
-      '时间卦', '电脑卦', '分秒卦', '时刻卦',
+      '时间卦', '电脑卦', '分秒卦',
     ]);
     for (const m of QIGUA_METHODS) {
       expect(typeof m.desc).toBe('string');
@@ -153,26 +153,6 @@ describe('时间卦 qiguaFromTime（年月日时起卦）', () => {
     expect(late).toEqual(early);
     expect(late.lines).toBe('122121'); // 火雷噬嗑（震下离上）
     expect(late.dong).toEqual([5]);
-  });
-});
-
-describe('时刻卦 qiguaFromShike（农历月日时辰刻）', () => {
-  test('2026-08-04 10:30：六月廿二、巳时=6、刻序7 → 泽天夬 五爻动', () => {
-    const r = qiguaFromShike(new Date(2026, 7, 4, 10, 30));
-    expect(r.lines).toBe('111112'); // 泽天夬(乾下兑上)
-    expect(r.dong).toEqual([4]);
-  });
-  test('00:00 子时第一刻段：2026-08-04 六月廿二 子=1 刻=5 → 风泽中孚 四爻动', () => {
-    const r = qiguaFromShike(new Date(2026, 7, 4, 0, 0));
-    expect(r.lines).toBe('112211'); // 风泽中孚(兑下巽上)
-    expect(r.dong).toEqual([3]);
-  });
-  test('刻序按 15 分钟递进：10:00→5 刻, 10:14→5 刻, 10:15→6 刻', () => {
-    const lines1 = qiguaFromShike(new Date(2026, 7, 4, 10, 0)).lines;
-    const lines2 = qiguaFromShike(new Date(2026, 7, 4, 10, 14)).lines;
-    const lines3 = qiguaFromShike(new Date(2026, 7, 4, 10, 15)).lines;
-    expect(lines1).toBe(lines2);
-    expect(lines2).not.toBe(lines3);
   });
 });
 

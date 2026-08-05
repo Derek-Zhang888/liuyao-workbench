@@ -172,7 +172,6 @@ describe('mdToGuashi 起卦参数', () => {
       ['baoshu', { digits: '3412' }],
       ['fenmiao', { ms: 12, ss: 34 }],
       ['time', { date: '2026-08-04 14:30' }],
-      ['shike', { date: '2026-08-04 14:30' }],
       ['computer', { lines: '111111' }],
       ['computer', { lines: '111111', dong: [0, 2] }], // F1
     ];

@@ -26,3 +26,7 @@ pnpm-debug.log*
 # 测试与覆盖率
 coverage/
 docs/superpowers/
+
+# 构建/测试临时产物
+vite.config.js.timestamp-*.mjs
+vt.json
