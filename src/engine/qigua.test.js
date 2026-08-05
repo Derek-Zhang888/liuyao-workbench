@@ -14,20 +14,20 @@ import {
  *   例：天风姤(巽下乾上) = '211111'，与 64 卦表 guaTable.js 一致
  *   注：简报中「数字卦算法2」「报数卦」两处期望 '111211' 为镜像笔误，
  *       按传统口径应为 '112111'（详见 task-4-report.md）
- * - 钱币卦 randomFn 每次返回 0-3（3 枚钱币中正面向上的枚数）：
- *   3正=老阳(9,阳动) 2正1反=少阳(7,阳静) 1正2反=少阴(8,阴静) 3反=老阴(6,阴动)
+ * - 钱币卦 randomFn 每次返回 0-3（3 枚钱币中正面向上的枚数，按「背为阳」约定）：
+ *   0正=老阳(9,阳动) 1正=少阴(8,阴静) 2正=少阳(7,阳静) 3正=老阴(6,阴动)
  */
 
 describe('QIGUA_METHODS 配置', () => {
-  test('8 项配置，id/name 与简报一致（时刻卦已移除）', () => {
-    expect(QIGUA_METHODS).toHaveLength(8);
+  test('7 项配置，分秒卦已移除', () => {
+    expect(QIGUA_METHODS).toHaveLength(7);
     expect(QIGUA_METHODS.map((m) => m.id)).toEqual([
       'qian', 'yaoming', 'guaname', 'number', 'baoshu',
-      'time', 'computer', 'fenmiao',
+      'time', 'computer',
     ]);
     expect(QIGUA_METHODS.map((m) => m.name)).toEqual([
       '钱币卦', '爻名卦', '卦名卦', '数字卦', '报数卦',
-      '时间卦', '电脑卦', '分秒卦',
+      '时间卦', '电脑卦',
     ]);
     for (const m of QIGUA_METHODS) {
       expect(typeof m.desc).toBe('string');
@@ -109,29 +109,16 @@ describe('报数卦 qiguaFromBaoshu', () => {
   });
   test('非法输入抛 RangeError', () => {
     expect(() => qiguaFromBaoshu('1')).toThrow(RangeError);    // 长度不足
-    expect(() => qiguaFromBaoshu('0123')).toThrow(RangeError); // 卦数 0
     expect(() => qiguaFromBaoshu('127')).toThrow(RangeError);  // 动爻编号 7 越界
     expect(() => qiguaFromBaoshu('12a')).toThrow(RangeError);  // 非数字
     expect(() => qiguaFromBaoshu(1234)).toThrow(RangeError);   // 非字符串
   });
-});
-
-describe('分秒卦 qiguaFromMinuteSecond', () => {
-  test('简报用例 23/45：2+3=5巽上，4+5=9余1乾下，四数和 14÷6 余2', () => {
-    const r = qiguaFromMinuteSecond(23, 45);
-    expect(r.lines).toBe('111211'); // 风天小畜(乾下巽上)
-    expect(r.dong).toEqual([1]);
-  });
-  test('和数整除：余0 按 8/6 计', () => {
-    expect(qiguaFromMinuteSecond(0, 0)).toEqual({ lines: '222222', dong: [5] }); // 0÷8余0→坤，0÷6→第6爻
-    expect(qiguaFromMinuteSecond(8, 16)).toEqual({ lines: '221222', dong: [2] }); // 8→坤上，1+6=7艮下，15÷6余3
-  });
-  test('单数位按 0+digit 求和：5→5 巽上，3→3 离下，(5+3)÷6 余2 → 风火家人 二爻动', () => {
-    expect(qiguaFromMinuteSecond(5, 3)).toEqual({ lines: '121211', dong: [1] });
-  });
-  test('非法输入抛 RangeError', () => {
-    expect(() => qiguaFromMinuteSecond(-1, 30)).toThrow(RangeError);
-    expect(() => qiguaFromMinuteSecond(1.5, 30)).toThrow(RangeError);
+  test('0 视作 8（卦数位）或 6（动爻位）', () => {
+    // '0123'：digits[0]='0'→上卦 8(坤222)、digits[1]='1'→下卦 1(乾111)；
+    // lines = GUA_NUM_LINES[1]+GUA_NUM_LINES[8] = '111'+'222' = '111222'（天地否）
+    // 动爻：digits[2]='2'→dongIdx(2)=1，digits[3]='3'→dongIdx(3)=2 → [1,2]
+    expect(qiguaFromBaoshu('0123')).toEqual({ lines: '111222', dong: [1, 2] });
+    expect(qiguaFromBaoshu('000')).toEqual({ lines: '222222', dong: [5] });
   });
 });
 
@@ -176,19 +163,22 @@ describe('电脑卦 qiguaFromRandom', () => {
 });
 
 describe('钱币卦 qiguaFromCoin', () => {
-  test('简报用例：randomFn 返回 3（3正=老阳9）→ 六爻皆动', () => {
-    const r = qiguaFromCoin(() => 3);
+  test('简报用例：randomFn 返回 0（0正=老阳9）→ 六爻皆动（v0.10 #1 反向）', () => {
+    const r = qiguaFromCoin(() => 0);
     expect(r.lines).toBe('111111');
     expect(r.dong).toEqual([0, 1, 2, 3, 4, 5]);
   });
-  test('4 种钱币结果映射：0→老阴(动) 1→少阴(静) 2→少阳(静) 3→老阳(动)', () => {
-    expect(qiguaFromCoin(() => 0)).toEqual({ lines: '222222', dong: [0, 1, 2, 3, 4, 5] });
+  test('4 种钱币结果映射（背为阳）：0→老阳(动) 1→少阴(静) 2→少阳(静) 3→老阴(动)', () => {
+    expect(qiguaFromCoin(() => 0)).toEqual({ lines: '111111', dong: [0, 1, 2, 3, 4, 5] });
     expect(qiguaFromCoin(() => 1)).toEqual({ lines: '222222', dong: [] });
     expect(qiguaFromCoin(() => 2)).toEqual({ lines: '111111', dong: [] });
-    expect(qiguaFromCoin(() => 3)).toEqual({ lines: '111111', dong: [0, 1, 2, 3, 4, 5] });
+    expect(qiguaFromCoin(() => 3)).toEqual({ lines: '222222', dong: [0, 1, 2, 3, 4, 5] });
   });
   test('混合序列：老阳 少阳 少阴 老阴 少阳 老阳 → 风泽中孚', () => {
-    const seq = [3, 2, 1, 0, 2, 3]; // 每次摇的正面个数
+    // seq=[0,2,1,3,2,0]：0→老阳(阳动) 2→少阳(阳静) 1→少阴(阴静)
+    //                   3→老阴(阴动) 2→少阳(阳静) 0→老阳(阳动)
+    // 爻画：1,1,2,2,1,1 = '112211'；动爻索引 [0,3,5]
+    const seq = [0, 2, 1, 3, 2, 0];
     const r = qiguaFromCoin(() => seq.shift());
     expect(r.lines).toBe('112211');
     expect(r.dong).toEqual([0, 3, 5]);

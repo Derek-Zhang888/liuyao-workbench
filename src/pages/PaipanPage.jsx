@@ -69,6 +69,7 @@ export default function PaipanPage() {
 
   // ---- 状态持久化：跨导航保留起盘结果 ----
   const SESSION_KEY = 'liuyao-paipan-state'
+const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
 
   /** 将当前状态存入 sessionStorage（pan 变化时自动触发） */
   useEffect(() => {
@@ -207,6 +208,18 @@ export default function PaipanPage() {
     setMsg('')
     setError('')
     setQiguaResetKey((k) => k + 1) // 起卦区输入一并清空
+    try {
+      sessionStorage.removeItem(SESSION_KEY)
+      sessionStorage.removeItem(QIGUA_INPUT_KEY) // 同时清掉起卦区输入持久化
+    } catch (_) { /* 静默 */ }
+  }
+
+  /** 清空占断：清空占断区文字内容（duan + title），保留 pan/tags/saved/记忆（Bug #12） */
+  const handleClearDuan = () => {
+    setTitle('')
+    setDuan({ ...EMPTY_DUAN })
+    setMsg('已清空占断文字（保留盘面与标签）')
+    setError('')
   }
 
   /** 历史回填查看 */
@@ -300,11 +313,11 @@ export default function PaipanPage() {
             </button>
             <button
               type="button"
-              onClick={handleRestoreDefault}
-              title="清除记忆并恢复默认值"
+              onClick={handleClearDuan}
+              title="清空占断文字（保留盘面与标签）"
               className="rounded-md border border-border px-5 py-2 text-sm text-muted transition-colors hover:text-text"
             >
-              恢复默认
+              清空
             </button>
             {saved && (
               <button

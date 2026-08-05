@@ -318,15 +318,26 @@ describe('tagsRepo 标签', () => {
     expect(list[1].id).toBe(b.id);
   });
 
-  test('deleteTag 只删标签，已保存卦例的 tags 原样保留', async () => {
+  test('deleteTag 联动移除卦例中的该标签名（v0.10 #10）', async () => {
     const t = await addTag({ name: '占病', color: '#c0392b' });
     const g = await addGuashi(makeGuashi({ tags: ['占病', '工作'] }));
-    await deleteTag(t.id);
+    const res = await deleteTag(t.id);
+    expect(res.removedFromGuashi).toBe(1);
     expect(await listTags()).toHaveLength(0);
     const kept = await getGuashi(g.id);
     expect(kept).toBeTruthy();
-    expect(kept.tags).toEqual(['占病', '工作']);
+    expect(kept.tags).toEqual(['工作']); // 占病已从卦例移除
     expect(await listGuashi()).toHaveLength(1);
+  });
+
+  test('deleteTag 不影响不含该标签的卦例', async () => {
+    const t = await addTag({ name: '占病', color: '#c0392b' });
+    const g1 = await addGuashi(makeGuashi({ tags: ['工作'] }));
+    const g2 = await addGuashi(makeGuashi({ tags: ['占病', '学业'] }));
+    const res = await deleteTag(t.id);
+    expect(res.removedFromGuashi).toBe(1);
+    expect((await getGuashi(g1.id)).tags).toEqual(['工作']);
+    expect((await getGuashi(g2.id)).tags).toEqual(['学业']);
   });
 
   test('ensureTags 只补建缺失的标签（trim/去重/忽略空串）', async () => {

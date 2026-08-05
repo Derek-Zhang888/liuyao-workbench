@@ -5,7 +5,7 @@
  * 起卦参数格式契约：`方法名|输入值|时间`（导入端 Task 8 按同规则解析）
  * params 对象序列化规则：
  *   qian/yaoming/guaname/computer → 主值（lines/input）
- *   baoshu → digits；fenmiao → ms,ss；number → n1,n2,n3（method=2 时追加 ,m2）
+ *   baoshu → digits；number → n1,n2,n3（method=2 时追加 ,m2）
  *   time → 时间（Date 或 ISO 字符串）
  * 时间回退：字符串 params 自带 | 后段；对象取 params.date/time；否则 guashi.date
  */
@@ -138,13 +138,12 @@ describe('guashiToMd 三层格式', () => {
     expect(fmOf({ params: { lines: '211111' } })).toContain('起卦参数: 钱币卦|211111|2026-08-04');
   });
 
-  test('params 对象序列化：爻画/数字/报数/分秒/时间卦', () => {
+  test('params 对象序列化：爻画/数字/报数/时间卦', () => {
     expect(fmOf({ params: { lines: '211111' } })).toContain('起卦参数: 钱币卦|211111|2026-08-04');
     expect(
       fmOf({ method: 'number', params: { n1: 1, n2: 2, n3: 3, method: 2 } }),
     ).toContain('起卦参数: 数字卦|1,2,3,m2|2026-08-04');
     expect(fmOf({ method: 'baoshu', params: { digits: '3412' } })).toContain('起卦参数: 报数卦|3412|2026-08-04');
-    expect(fmOf({ method: 'fenmiao', params: { ms: 12, ss: 34 } })).toContain('起卦参数: 分秒卦|12,34|2026-08-04');
     expect(
       fmOf({ method: 'time', params: { date: new Date(2026, 7, 4, 14, 30) } }),
     ).toContain('起卦参数: 时间卦|2026-08-04 14:30|2026-08-04');
@@ -164,7 +163,7 @@ describe('guashiToMd 三层格式', () => {
     expect(fm).toContain('tags: ["yes", 真]');
   });
 
-  test('数字卦 method=1 无标记；guaname/yaoming/computer/time 序列化；fenmiao 缺字段兜底', () => {
+  test('数字卦 method=1 无标记；guaname/yaoming/computer/time 序列化', () => {
     expect(fmOf({ method: 'number', params: { n1: 1, n2: 2, n3: 3 } })).toContain('起卦参数: 数字卦|1,2,3|2026-08-04');
     expect(fmOf({ method: 'guaname', params: { input: '天风姤' } })).toContain('起卦参数: 卦名卦|天风姤|2026-08-04');
     expect(fmOf({ method: 'yaoming', params: { lines: '311111' } })).toContain('起卦参数: 爻名卦|311111|2026-08-04');
@@ -172,7 +171,6 @@ describe('guashiToMd 三层格式', () => {
     expect(
       fmOf({ method: 'time', params: { date: new Date(2026, 7, 4, 14, 30) } }),
     ).toContain('起卦参数: 时间卦|2026-08-04 14:30|2026-08-04');
-    expect(fmOf({ method: 'fenmiao', params: { ms: 12 } })).toContain('起卦参数: 分秒卦|12,|2026-08-04');
   });
 
   test('断语空行精确断言：## 断语 后空两行再 ## 应期', () => {

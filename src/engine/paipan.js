@@ -37,7 +37,6 @@ import {
   qiguaFromBaoshu,
   qiguaFromTime,
   qiguaFromRandom,
-  qiguaFromMinuteSecond,
 } from './qigua.js';
 
 /** 五行 -> CSS 颜色变量（对应 styles/theme.css 的 --wuxing-*） */
@@ -174,7 +173,6 @@ function resolveQigua(method, params, date) {
     baoshu: () => qiguaFromBaoshu(params.digits),
     time: () => qiguaFromTime(date),
     computer: () => qiguaFromRandom(params.randomFn),
-    fenmiao: () => qiguaFromMinuteSecond(params.ms, params.ss),
   };
   const fn = dispatch[method];
   if (!fn) {
@@ -241,8 +239,9 @@ export function paipan({ method, params = {}, date } = {}) {
 
   // ---- 4. 变卦：动爻爻画 1↔2 翻转后查表（无动爻 bian=null） ----
   let bianGua = null;
+  let bianLines = null;
   if (dong.length > 0) {
-    const bianLines = lines
+    bianLines = lines
       .split('')
       .map((c, i) => (dong.includes(i) ? (c === '1' ? '2' : '1') : c))
       .join('');
@@ -278,11 +277,12 @@ export function paipan({ method, params = {}, date } = {}) {
     });
   }
 
-  const summary = (g) => {
+  const summary = (g, linesStr) => {
     const rel = hexagramRelation(g.liuqin);
     return {
       name: g.name,
       gong: g.gong,
+      lines: linesStr ?? null, // 6 位 1/2 爻画（初→上）；变卦列渲染用，本卦由调用方传入
       liuqin: [...g.liuqin],
       shi: g.shi,
       ying: g.ying,
@@ -294,9 +294,9 @@ export function paipan({ method, params = {}, date } = {}) {
   };
 
   return {
-    ben: summary(benGua),
+    ben: summary(benGua, lines),
     bian: bianGua
-      ? { ...summary(bianGua), liuqin: bianLiuqinBenGong(bianGua, GONG_WUXING[benGua.gong]) }
+      ? { ...summary(bianGua, bianLines), liuqin: bianLiuqinBenGong(bianGua, GONG_WUXING[benGua.gong]) }
       : null,
     yao,
     liushen,
@@ -307,6 +307,7 @@ export function paipan({ method, params = {}, date } = {}) {
     xunkong: [...lunar.xunkong],
     yuejian: lunar.yuejian,
     solarDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    solarTime: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
     lunarDate: `农历${lunar.year}年${lunar.isLeap ? '闰' : ''}${lunar.month}月${lunar.day}日`,
     guashen: GONG_GUASHEN[benGua.gong],
     shashen: null, // 测试版暂不实现煞神（神煞已按爻展示于盘面）

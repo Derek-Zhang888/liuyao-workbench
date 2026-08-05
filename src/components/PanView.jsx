@@ -1,22 +1,15 @@
-/**
- * 盘面展示组件（Task 9 / Task 14 响应式改造）
- *
- * 输入 paipan() 输出的盘面对象，暗色专业风渲染：
- *   干支行：年建/月建/日建/时建/旬空/卦身/煞神
- *   卦名行：本卦名 | 变卦名（点击跳卦辞页 /help/guaci?gua=卦名）
- *   6 爻行（上→初，每爻三格）：
- *     六神+爻位 | 本卦六亲+世应+爻画+伏神 | 变卦六亲
- *           点击爻行跳爻辞页 /help/yaoci?gua=卦名&line=爻索引
- * 五行配色：地支文字按五行用 --wuxing-* 变量（WUXING_COLOR）。
- *
- * 响应式：盘面改为「每爻一格」的紧凑结构（无固定最小列宽），
- *   320px 手机到宽屏桌面均自适应，无需横向滚动。
- */
+/* eslint-disable react/prop-types */
 import { useNavigate } from 'react-router-dom'
 import { WUXING_COLOR } from '../engine/paipan.js'
 
 /** 爻位名（初爻→上爻） */
 const LINE_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
+
+/** 单爻爻画渲染：lines[i] 为 '1'(阳) 或 '2'(阴)；动爻标记 ○(阳动) / ×(阴动) */
+function LineGlyph({ v, dong = false, active = true }) {
+  if (v === 1) return <span className={active ? 'text-gold' : 'text-muted'}>{dong ? '━━━○' : '━━━'}</span>
+  return <span className={active ? 'text-gold' : 'text-muted'}>{dong ? '━━x━' : '━━ ━━'}</span>
+}
 
 /** 六神 → 五行对应色（青龙木 朱雀火 勾陈/螣蛇土 白虎金 玄武水） */
 const LIUSHEN_COLOR = {
@@ -100,6 +93,11 @@ export default function PanView({ pan }) {
         <span className="text-muted">
           农历 <b className="ml-0.5 text-gold">{pan.lunarDate}</b>
         </span>
+        {pan.solarTime ? (
+          <span className="text-muted">
+            时刻 <b className="ml-0.5 text-gold">{pan.solarTime}</b>
+          </span>
+        ) : null}
       </div>
 
       {/* 卦名行 */}
@@ -198,7 +196,7 @@ export default function PanView({ pan }) {
                 ) : null}
               </span>
 
-              {/* 变卦六亲 */}
+              {/* 变卦六亲 + 爻画 */}
               <span className="min-w-0">
                 <span className="block truncate text-sm">
                   {b ? (
@@ -207,6 +205,15 @@ export default function PanView({ pan }) {
                     <span className="text-muted">—</span>
                   )}
                 </span>
+                {bian?.lines ? (
+                  <span className="mt-1 flex items-center gap-1 whitespace-nowrap text-sm leading-none">
+                    <LineGlyph
+                      v={Number(bian.lines[i])}
+                      dong={false}
+                      active={!!b}
+                    />
+                  </span>
+                ) : null}
               </span>
             </button>
           )

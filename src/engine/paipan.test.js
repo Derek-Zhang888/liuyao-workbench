@@ -130,15 +130,11 @@ describe('paipan 盘面生成器', () => {
     expect(r3.yao[5].dong).toBe(true);
   });
 
-  test('method 分派：time/fenmiao/baoshu/yaoming/computer', () => {
+  test('method 分派：time/baoshu/yaoming/computer', () => {
     // time 时间卦（2024-02-10 10:30 巳时：年支辰5+月1+日1=7 上艮，+时6=13 下巽，动爻=1 → 山风蛊，初爻动）
     const t = paipan({ method: 'time', params: {}, date: new Date(2024, 1, 10, 10, 30) });
     expect(t.ben.name).toBe('山风蛊');
     expect(t.yao[0].dong).toBe(true);
-    // fenmiao 分秒卦（12→3 上离，34→7 下艮，动爻=(3+7)÷6 余4 → 火山旅，四爻动）
-    const fm = paipan({ method: 'fenmiao', params: { ms: 12, ss: 34 }, date: new Date(2026, 7, 4) });
-    expect(fm.ben.name).toBe('火山旅');
-    expect(fm.yao[3].dong).toBe(true);
     // baoshu 报数卦（3412：上离(3)下震(4)，动爻 1、2 → 火雷噬嗑，初、二爻动）
     const bs = paipan({ method: 'baoshu', params: { digits: '3412' }, date: new Date(2026, 7, 4) });
     expect(bs.ben.name).toBe('火雷噬嗑');

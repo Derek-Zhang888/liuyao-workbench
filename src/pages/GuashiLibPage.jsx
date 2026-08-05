@@ -22,6 +22,7 @@ import PanView from '../components/PanView.jsx'
 import DuanInput from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
 import GuashiCard from '../components/GuashiCard.jsx'
+import ConfirmDialog, { isNoRemind } from '../components/ConfirmDialog.jsx'
 import { downloadGuashiBatch, downloadGuashiMd } from '../utils/exportBatch.js'
 import { resolvePan } from '../utils/panResolve.js'
 
@@ -57,6 +58,7 @@ export default function GuashiLibPage() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [importResult, setImportResult] = useState(null) // {ok, fail:[{name,error}]}
+  const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
 
   const tagColors = useMemo(
     () => Object.fromEntries(allTags.map((t) => [t.name, t.color])),
@@ -92,21 +94,35 @@ export default function GuashiLibPage() {
     })()
   }, [])
 
-  /** 删除标签：只删标签本身，已保存卦例的 tags 原样保留（Bug #14） */
-  const handleDeleteTag = async (tag) => {
-    if (
-      !window.confirm(`确定删除标签「${tag.name}」吗？\n只删除标签本身，已保存的卦例不会受影响。`)
-    )
-      return
+  /** 删除标签：弹窗确认后统一从所有卦例的 tags 中移除该标签名（Bug #10）；
+ *  勾选「不再提醒」后下次直接删除；也支持预设标签种子的再次提醒（清除记忆后再次弹窗）。 */
+  const TAG_DELETE_KEY = 'tag-delete'
+  const handleDeleteTag = (tag) => {
+    if (isNoRemind(TAG_DELETE_KEY)) {
+      doDeleteTag(tag)
+    } else {
+      setPendingDeleteTag(tag)
+    }
+  }
+  const doDeleteTag = async (tag) => {
     try {
-      await deleteTag(tag.id)
+      const res = await deleteTag(tag.id)
       setSelTags((s) => s.filter((n) => n !== tag.name))
-      setMsg(`已删除标签「${tag.name}」（已保存的卦例不受影响）`)
+      setMsg(`已删除标签「${tag.name}」${res.removedFromGuashi ? `，并从 ${res.removedFromGuashi} 条卦例中移除该标签` : '（无卦例使用）'}`)
       setError('')
       refreshTags()
+      refresh()
     } catch (e) {
       setError('删除标签失败：' + e.message)
     }
+  }
+  const confirmDeleteTag = (remember) => {
+    if (remember) {
+      try { localStorage.setItem(`liuyao-noremind-${TAG_DELETE_KEY}`, '1') } catch (_) { /* 静默 */ }
+    }
+    const tag = pendingDeleteTag
+    setPendingDeleteTag(null)
+    if (tag) doDeleteTag(tag)
   }
 
   /** 筛选后的展示列表（tag 多选为「任一命中」） */
@@ -565,6 +581,22 @@ export default function GuashiLibPage() {
           )}
         </>
       )}
+
+      {/* 删除标签确认弹窗 */}
+      <ConfirmDialog
+        open={!!pendingDeleteTag}
+        title="删除标签"
+        message={
+          pendingDeleteTag
+            ? `删除标签「${pendingDeleteTag.name}」？\n将同时从所有卦例中移除该标签名（不可撤销）。`
+            : ''
+        }
+        confirmLabel="删除"
+        cancelLabel="取消"
+        noRemindStorageKey="tag-delete"
+        onConfirm={confirmDeleteTag}
+        onCancel={() => setPendingDeleteTag(null)}
+      />
     </div>
   )
 }

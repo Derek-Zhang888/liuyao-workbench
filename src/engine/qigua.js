@@ -13,8 +13,7 @@
  *   qiguaFromBaoshu(digits)         报数卦：2-8 位数字字符串
  *   qiguaFromTime(date)             时间卦：农历年月日时起卦
  *   qiguaFromRandom(randomFn)       电脑卦：默认 Math.random
- *   qiguaFromMinuteSecond(ms,ss)    分秒卦
- *   QIGUA_METHODS                   8 项配置 {id, name, desc}
+ *   QIGUA_METHODS                   7 项配置 {id, name, desc}
  *
  * 卦数映射（先天八卦数，与简报一致）：1乾 2兑 3离 4震 5巽 6坎 7艮 8坤
  * 三爻画（初→上）：乾111 兑112 离121 震122 巽211 坎212 艮221 坤222
@@ -24,6 +23,10 @@
  *   例：天风姤（巽下乾上）= 下巽'211' + 上乾'111' = '211111'，与 64 卦表一致
  *
  * 余数约定：÷8 余 0 记作 8（坤）；÷6 余 0 记作 6（第 6 爻动，索引 5）
+ *
+ * 钱币卦（0正=老阳 1正=少阴 2正=少阳 3正=老阴）：
+ *   沿用传统「背为阳」约定——三枚钱币中正（字面）为阴、反（背面/花面）为阳；
+ *   故正面枚数越多越偏阴，0正（3背）= 老阳、3正（0背）= 老阴。
  */
 import { toLunar } from './ganzhi.js';
 import { GUA_64 } from './guaTable.js';
@@ -31,8 +34,9 @@ import { GUA_64 } from './guaTable.js';
 /** 卦数 → 三爻画（初→上，1=阳 2=阴）；下标即卦数 1-8 */
 const GUA_NUM_LINES = ['', '111', '112', '121', '122', '211', '212', '221', '222'];
 
-/** 钱币卦：正面枚数(0-3) → 和数（6老阴 7少阳 8少阴 9老阳） */
-const HEADS_TO_VALUE = { 0: 6, 1: 8, 2: 7, 3: 9 };
+/** 钱币卦：正面枚数(0-3) → 和数（6老阴 7少阳 8少阴 9老阳，按「背为阳」约定）
+ *  0正=老阳(9)  1正=少阴(8)  2正=少阳(7)  3正=老阴(6) */
+const HEADS_TO_VALUE = { 0: 9, 1: 8, 2: 7, 3: 6 };
 
 /** 除 8 取卦数，余 0 记 8（坤）；n 均为非负整数 */
 function guaNumMod(n) {
@@ -98,9 +102,9 @@ export function qiguaFromQian(lines) {
 
 /**
  * 钱币卦：连摇 6 次，每次 3 枚钱币。
- * randomFn() 每次返回 0-3，表示 3 枚钱币中正面向上的枚数：
- *   3正=老阳(9, 阳爻动)  2正1反=少阳(7, 阳爻静)
- *   1正2反=少阴(8, 阴爻静) 3反=老阴(6, 阴爻动)
+ * randomFn() 每次返回 0-3，表示 3 枚钱币中正面向上的枚数（按「背为阳」约定）：
+ *   0正=老阳(9, 阳爻动)  1正=少阴(8, 阴爻静)
+ *   2正=少阳(7, 阳爻静) 3正=老阴(6, 阴爻动)
  * @param {() => number} randomFn 须返回 0-3 的整数（正面枚数）；默认 () => Math.floor(Math.random() * 4)
  * @returns {{lines:string, dong:number[]}}
  */
@@ -115,19 +119,26 @@ export function qiguaFromCoin(randomFn = () => Math.floor(Math.random() * 4)) {
     if (!Number.isInteger(n) || n < 0 || n > 3) {
       throw new RangeError(`钱币卦 randomFn 须返回 0-3（正面枚数），收到：${n}`);
     }
-    const v = HEADS_TO_VALUE[n]; // 6老阴 7少阳 8少阴 9老阳
+    const v = HEADS_TO_VALUE[n]; // 0正=9老阳 1正=8少阴 2正=7少阳 3正=6老阴
     lines.push(v === 7 || v === 9 ? '1' : '2');
     if (v === 6 || v === 9) dong.push(i); // 老阴/老阳动
   }
   return { lines: lines.join(''), dong };
 }
 
-/** 卦名 → 64 卦表条目（名 / 纯卦单字 / 去「为」简称）；查无返回 undefined */
+/** 卦名别名表：把口语/易混写法规范为 64 卦表中的标准名。
+ *  主要收录「水火既济/火水未济」对称记忆造成的上下互换错写。 */
+const GUA_NAME_ALIASES = {
+  水火未济: '火水未济',
+};
+
+/** 卦名 → 64 卦表条目（名 / 纯卦单字 / 去「为」简称 / 别名）；查无返回 undefined */
 export function findGuaByName(name) {
   if (typeof name !== 'string') return undefined;
   let hit = GUA_64.find((g) => g.name === name);
   if (!hit) hit = GUA_64.find((g) => g.gong === name); // 八纯卦单字（乾 兑 离 震 巽 坎 艮 坤）
   if (!hit) hit = GUA_64.find((g) => g.name.replace('为', '') === name); // 如「乾天」
+  if (!hit && GUA_NAME_ALIASES[name]) hit = GUA_64.find((g) => g.name === GUA_NAME_ALIASES[name]); // 别名
   return hit;
 }
 
@@ -150,8 +161,16 @@ export function searchGuaByName(keyword, limit = 12) {
     if (g.gong.includes(k)) return 3;
     return 9;
   };
+  // 别名（口语写法）→ 标准名：搜索时对别名也做完全匹配（rank 0）和子串匹配（rank 2）
+  const aliasedName = GUA_NAME_ALIASES[k];
+  const aliasRank = (g) => {
+    if (!aliasedName) return 9;
+    if (g.name === aliasedName) return 0; // 命中别名
+    if (g.name.includes(aliasedName)) return 2; // 子串命中别名
+    return 9;
+  };
   const hits = GUA_64
-    .map((g, i) => ({ g, r: rank(g), i }))
+    .map((g, i) => ({ g, r: Math.min(rank(g), aliasRank(g)), i }))
     .filter((x) => x.r < 9)
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.g);
@@ -222,7 +241,8 @@ export function qiguaFromNumber(n1, n2, n3, method = 1) {
 
 /**
  * 报数卦：2-8 位数字字符串。
- * 前两位为卦数 1-8（先上后下），其余各位为动爻编号 1-6（多个动爻去重排序）。
+ * 前两位为卦数 0-8（先上后下），其余各位为动爻编号 0-6（多个动爻去重排序）。
+ * 0 视为「零」，按「零除以八当作八 / 零除以六当作六」约定映射：卦数位 0→8，动爻位 0→6。
  * @param {string} digits 如 '1234'：上乾下兑，3、4 爻动
  * @returns {{lines:string, dong:number[]}}
  */
@@ -230,18 +250,18 @@ export function qiguaFromBaoshu(digits) {
   if (typeof digits !== 'string' || !/^\d{2,8}$/.test(digits)) {
     throw new RangeError(`报数卦需要 2-8 位数字字符串，收到：${JSON.stringify(digits)}`);
   }
-  const shangNum = Number(digits[0]);
-  const xiaNum = Number(digits[1]);
-  if (shangNum < 1 || shangNum > 8 || xiaNum < 1 || xiaNum > 8) {
-    throw new RangeError('报数卦前两位须为 1-8 的卦数');
-  }
+  const normNum = (s, max, fallback) => {
+    const n = Number(s);
+    if (!Number.isInteger(n) || n < 0 || n > max) {
+      throw new RangeError(`报数卦数字须为 0-${max}，收到：${s}`);
+    }
+    return n === 0 ? fallback : n; // 0 → fallback（卦数位 0→8，动爻位 0→6）
+  };
+  const shangNum = normNum(digits[0], 8, 8);
+  const xiaNum = normNum(digits[1], 8, 8);
   const dong = [];
   for (let i = 2; i < digits.length; i++) {
-    const d = Number(digits[i]);
-    if (d < 1 || d > 6) {
-      throw new RangeError('报数卦动爻编号须为 1-6');
-    }
-    dong.push(dongIdx(d));
+    dong.push(dongIdx(normNum(digits[i], 6, 6)));
   }
   return { lines: GUA_NUM_LINES[xiaNum] + GUA_NUM_LINES[shangNum], dong: normalizeDong(dong) };
 }
@@ -266,30 +286,8 @@ export function qiguaFromTime(date) {
 }
 
 /**
- * 分秒卦：分钟数、秒数各取十进制各位数字之和。
- *   上卦 = 分钟各位和 ÷ 8；下卦 = 秒数各位和 ÷ 8；动爻 = 四数和 ÷ 6
- * @param {number} ms 分钟（两位数字，如 23）
- * @param {number} ss 秒数（两位数字，如 45）
- * @returns {{lines:string, dong:number[]}}
- */
-export function qiguaFromMinuteSecond(ms, ss) {
-  for (const [label, n] of [['分钟', ms], ['秒', ss]]) {
-    if (!Number.isInteger(n) || n < 0) {
-      throw new RangeError(`分秒卦${label}需要非负整数，收到：${n}`);
-    }
-  }
-  const sumDigits = (n) => String(n).split('').reduce((s, c) => s + Number(c), 0);
-  const a = sumDigits(ms);
-  const b = sumDigits(ss);
-  const shangNum = guaNumMod(a);
-  const xiaNum = guaNumMod(b);
-  const dongNum = dongNumMod(a + b);
-  return buildResult(shangNum, xiaNum, dongNum);
-}
-
-/**
  * 电脑卦：随机生成 6 爻。randomFn() 每次返回 [0,1) 的随机数，等概率映射 4 种爻型：
- *   [0,0.25) 静阳(1)  [0.25,0.5) 静阴(2)  [0.5,0.75) 老阳(3,动)  [0.75,1) 老阴(4,动)
+ *   [0,0.25) 少阳(1)  [0.25,0.5) 少阴(2)  [0.5,0.75) 老阳(3,动)  [0.75,1) 老阴(4,动)
  * @param {() => number} randomFn 默认 Math.random
  * @returns {{lines:string, dong:number[]}}
  */
@@ -311,7 +309,7 @@ export function qiguaFromRandom(randomFn = Math.random) {
   return { lines: lines.join(''), dong };
 }
 
-/** 8 种起卦方式配置 */
+/** 7 种起卦方式配置 */
 export const QIGUA_METHODS = [
   { id: 'qian', name: '钱币卦', desc: '按六爻各三枚钱币的正/背面成卦（如初爻「背正正」），老阳/老阴为动爻' },
   { id: 'yaoming', name: '爻名卦', desc: '直接输入六爻爻画（1阳 2阴 3老阳 4老阴）成卦' },
@@ -320,5 +318,4 @@ export const QIGUA_METHODS = [
   { id: 'baoshu', name: '报数卦', desc: '报 2-8 位数字：前两位为上下卦数，后几位为动爻编号' },
   { id: 'time', name: '时间卦', desc: '以农历年支、月、日、时辰序起卦（年月日时法）' },
   { id: 'computer', name: '电脑卦', desc: '随机生成六爻（含动爻），由 randomFn 驱动，默认 Math.random' },
-  { id: 'fenmiao', name: '分秒卦', desc: '以分钟、秒钟各位数字之和起卦' },
 ];

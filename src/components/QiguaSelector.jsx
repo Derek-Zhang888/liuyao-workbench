@@ -16,7 +16,7 @@
  * date 说明：所有起卦方式共用顶部「起卦时间」（新历 datetime-local / 农历年月日+时分），
  *   默认为当前时刻；该时间同时用于排盘的干支历法与卦例记录的时间。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   QIGUA_METHODS,
   findGuaByName,
@@ -28,9 +28,11 @@ import {
   qiguaFromBaoshu,
   qiguaFromTime,
   qiguaFromRandom,
-  qiguaFromMinuteSecond,
 } from '../engine/qigua.js'
 import { toLunar, fromLunar } from '../engine/ganzhi.js'
+
+/** 起卦区输入持久化：切辅助工具页后返回不丢失，仅重置键清空。 */
+const INPUT_SESSION_KEY = 'liuyao-qigua-input-state'
 
 const METHOD_MAP = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m]))
 
@@ -40,20 +42,20 @@ const LINE_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
 /** 钱币卦默认面值（每爻三枚，正面枚数决定爻型；两正=少阳） */
 const defaultCoinFaces = () => Array.from({ length: 6 }, () => ['正', '正', '背'])
 
-/** 正面枚数 → 爻型名（与 qiguaFromCoin 的 HEADS_TO_VALUE 一致） */
-const HEADS_LABEL = ['老阴', '少阴', '少阳', '老阳']
+/** 正面枚数 → 爻型名（按「背为阳」约定：0正=老阳 1正=少阴 2正=少阳 3正=老阴） */
+const HEADS_LABEL = ['老阳', '少阴', '少阳', '老阴']
 
-/** 爻名卦爻型：1阳 2阴 3老阳 4老阴 */
+/** 爻名卦爻型：1少阳 2少阴 3老阳 4老阴 */
 const YAO_TYPES = [
-  { v: '1', label: '阳' },
-  { v: '2', label: '阴' },
+  { v: '1', label: '少阳' },
+  { v: '2', label: '少阴' },
   { v: '3', label: '老阳' },
   { v: '4', label: '老阴' },
 ]
 
-/** 电脑卦交互：随机数 [0,1) → 爻型（与 qiguaFromRandom 分段一致） */
+/** 电脑卦交互：随机数 [0,1) → 爻型（统一用词：少阳/少阴/老阳/老阴） */
 function compTypeLabel(r) {
-  return r < 0.25 ? '静阳' : r < 0.5 ? '静阴' : r < 0.75 ? '老阳' : '老阴'
+  return r < 0.25 ? '少阳' : r < 0.5 ? '少阴' : r < 0.75 ? '老阳' : '老阴'
 }
 
 /** 当前时刻 → 'YYYY-MM-DDTHH:mm'（datetime-local 取值） */
@@ -209,9 +211,38 @@ export default function QiguaSelector({ onStart }) {
   const [compMode, setCompMode] = useState('interact') // interact 逐爻随机 / direct 一键随机
   const [compSeq, setCompSeq] = useState([]) // 交互模式已生成的 [0,1) 随机数
 
-  // —— 分秒卦 ——
-  const [fens, setFens] = useState('')
-  const [miao, setMiao] = useState('')
+  // —— 输入区状态持久化：跨导航/刷新保留，PaipanPage「重新起卦」时由 key 变化强制重挂载 ——
+  const inputState = {
+    method, dateMode, dt, lunar, coinFaces, yaoSpins, guaBen, guaBian,
+    num1, num2, num3, numMethod, digits, compMode, compSeq,
+  }
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(INPUT_SESSION_KEY, JSON.stringify(inputState))
+    } catch (_) { /* 容量不足时静默失败 */ }
+  })
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(INPUT_SESSION_KEY)
+      if (!raw) return
+      const s = JSON.parse(raw)
+      if (s.method) setMethod(s.method)
+      if (s.dateMode) setDateMode(s.dateMode)
+      if (typeof s.dt === 'string') setDt(s.dt)
+      if (s.lunar && typeof s.lunar === 'object') setLunar(s.lunar)
+      if (Array.isArray(s.coinFaces) && s.coinFaces.length === 6) setCoinFaces(s.coinFaces)
+      if (Array.isArray(s.yaoSpins) && s.yaoSpins.length === 6) setYaoSpins(s.yaoSpins)
+      if (typeof s.guaBen === 'string') setGuaBen(s.guaBen)
+      if (typeof s.guaBian === 'string') setGuaBian(s.guaBian)
+      if (typeof s.num1 === 'string') setNum1(s.num1)
+      if (typeof s.num2 === 'string') setNum2(s.num2)
+      if (typeof s.num3 === 'string') setNum3(s.num3)
+      if (s.numMethod === 1 || s.numMethod === 2) setNumMethod(s.numMethod)
+      if (typeof s.digits === 'string') setDigits(s.digits)
+      if (s.compMode === 'interact' || s.compMode === 'direct') setCompMode(s.compMode)
+      if (Array.isArray(s.compSeq)) setCompSeq(s.compSeq)
+    } catch (_) { /* 解析失败时静默，使用默认状态 */ }
+  }, [])
 
   const meta = METHOD_MAP[method]
 
@@ -301,15 +332,15 @@ export default function QiguaSelector({ onStart }) {
           break
         }
         case 'number': {
-          const n1 = Number(num1)
-          const n2 = Number(num2)
-          const n3 = Number(num3)
+          const n1 = num1 === '' ? NaN : Number(num1)
+          const n2 = num2 === '' ? NaN : Number(num2)
+          const n3 = num3 === '' ? NaN : Number(num3)
           if (
-            !num1 || !num2 || !num3 ||
+            num1 === '' || num2 === '' || num3 === '' ||
             !Number.isInteger(n1) || !Number.isInteger(n2) || !Number.isInteger(n3) ||
-            n1 <= 0 || n2 <= 0 || n3 <= 0
+            n1 < 0 || n2 < 0 || n3 < 0
           ) {
-            throw new Error('请输入三个正整数')
+            throw new Error('请输入三个非负整数（0 当作 8 / 第 6 爻动）')
           }
           params = { n1, n2, n3, method: numMethod }
           result = qiguaFromNumber(n1, n2, n3, numMethod)
@@ -317,7 +348,7 @@ export default function QiguaSelector({ onStart }) {
         }
         case 'baoshu': {
           const d = digits.trim()
-          if (!d) throw new Error('请输入 2-8 位数字')
+          if (!d) throw new Error('请输入 2-8 位数字（0 当作 8 / 第 6 爻动）')
           params = { digits: d }
           result = qiguaFromBaoshu(d)
           break
@@ -338,20 +369,6 @@ export default function QiguaSelector({ onStart }) {
             result = qiguaFromRandom()
           }
           params = { lines: result.lines, dong: result.dong }
-          break
-        }
-        case 'fenmiao': {
-          const ms = Number(fens)
-          const ss = Number(miao)
-          if (
-            fens === '' || miao === '' ||
-            !Number.isInteger(ms) || !Number.isInteger(ss) ||
-            ms < 0 || ss < 0
-          ) {
-            throw new Error('请输入非负整数的分与秒')
-          }
-          params = { ms, ss }
-          result = qiguaFromMinuteSecond(ms, ss)
           break
         }
         default:
@@ -462,18 +479,18 @@ export default function QiguaSelector({ onStart }) {
 
       {/* 各方式输入区 */}
       <div className="space-y-4">
-        {/* 钱币卦：逐爻输入三枚钱币的正/背面 */}
+        {/* 钱币卦：逐爻输入三枚钱币的正/背面（顺序：上爻在上、初爻在下，符合传统盘面） */}
         {method === 'qian' && (
           <div className="space-y-2">
             <p className="text-xs text-muted">
-              点击切换每枚钱币的正/背面（如初爻「背正正」）：三正=老阳（动）、两正=少阳、一正=少阴、零正=老阴（动）
+              点击切换每枚钱币的正/背面（如初爻「背正正」）：三正=老阴（动）、两正=少阳、一正=少阴、零正=老阳（动）
             </p>
-            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            <div className="flex flex-col-reverse gap-y-2 text-sm">
               {coinFaces.map((row, i) => {
                 const heads = row.filter((f) => f === '正').length
                 return (
                   <div key={i} className="flex items-center gap-1.5">
-                    <span className="text-xs text-muted">{LINE_NAMES[i]}</span>
+                    <span className="w-10 text-xs text-muted">{LINE_NAMES[i]}</span>
                     {row.map((f, j) => (
                       <button
                         key={j}
@@ -503,13 +520,22 @@ export default function QiguaSelector({ onStart }) {
 
         {/* 爻名卦 */}
         {method === 'yaoming' && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {yaoSpins.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="text-xs text-muted">{LINE_NAMES[i]}</span>
-                <Select name={`yao-${i}`} value={s} onChange={setSpin(yaoSpins, setYaoSpins, i)} options={YAO_TYPES} className="w-20" />
-              </div>
-            ))}
+          <div className="space-y-2">
+            <div className="flex flex-col-reverse gap-y-2 text-sm">
+              {yaoSpins.map((s, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-10 text-xs text-muted">{LINE_NAMES[i]}</span>
+                  <Select name={`yao-${i}`} value={s} onChange={setSpin(yaoSpins, setYaoSpins, i)} options={YAO_TYPES} className="w-20" />
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setYaoSpins(Array(6).fill('1'))}
+              className="text-xs text-muted hover:text-red"
+            >
+              重置
+            </button>
           </div>
         )}
 
@@ -532,18 +558,25 @@ export default function QiguaSelector({ onStart }) {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span className="text-muted">三个数字</span>
-              <input type="number" min="1" value={num1} onChange={(e) => setNum1(e.target.value)} placeholder="第 1 数" className={`${inputCls} w-28`} />
-              <input type="number" min="1" value={num2} onChange={(e) => setNum2(e.target.value)} placeholder="第 2 数" className={`${inputCls} w-28`} />
-              <input type="number" min="1" value={num3} onChange={(e) => setNum3(e.target.value)} placeholder="第 3 数" className={`${inputCls} w-28`} />
+              <input type="number" min="0" value={num1} onChange={(e) => setNum1(e.target.value)} placeholder="第 1 数" className={`${inputCls} w-28`} />
+              <input type="number" min="0" value={num2} onChange={(e) => setNum2(e.target.value)} placeholder="第 2 数" className={`${inputCls} w-28`} />
+              <input type="number" min="0" value={num3} onChange={(e) => setNum3(e.target.value)} placeholder="第 3 数" className={`${inputCls} w-28`} />
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span className="text-muted">算法</span>
               <button type="button" onClick={() => setNumMethod(1)} className={modeCls(numMethod === 1)}>算法一</button>
               <button type="button" onClick={() => setNumMethod(2)} className={modeCls(numMethod === 2)}>算法二</button>
               <span className="text-xs text-muted">
-                算法一：上卦=第1数÷8，下卦=(第2+第3数)÷8，动爻=三数和÷6；算法二：上卦=第1数÷8，下卦=第2数÷8，动爻=第3数÷6（余 0 记 8 / 第 6 爻动）
+                算法一：上卦=第1数÷8，下卦=(第2+第3数)÷8，动爻=三数和÷6；算法二：上卦=第1数÷8，下卦=第2数÷8，动爻=第3数÷6（余 0 记 8 / 第 6 爻动，输入 0 也按此处理）
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => { setNum1(''); setNum2(''); setNum3(''); setNumMethod(1) }}
+              className="text-xs text-muted hover:text-red"
+            >
+              重置
+            </button>
           </div>
         )}
 
@@ -556,7 +589,14 @@ export default function QiguaSelector({ onStart }) {
               placeholder="如：1234"
               className={`${inputCls} w-40`}
             />
-            <span className="text-xs text-muted">报 2-8 位数字：前两位为卦数（1-8，先上后下），其余各位为动爻编号（1-6，可多动爻）</span>
+            <button
+              type="button"
+              onClick={() => setDigits('')}
+              className="text-xs text-muted hover:text-red"
+            >
+              重置
+            </button>
+            <span className="text-xs text-muted">报 2-8 位数字：前两位为卦数（0-8，先上后下，0 当作 8），其余各位为动爻编号（0-6，0 当作第 6 爻动）</span>
           </div>
         )}
 
@@ -611,20 +651,7 @@ export default function QiguaSelector({ onStart }) {
           </div>
         )}
 
-        {/* 分秒卦 */}
-        {method === 'fenmiao' && (
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-2 text-muted">
-              分
-              <input type="number" min="0" max="99" value={fens} onChange={(e) => setFens(e.target.value)} placeholder="如 23" className={`${inputCls} w-24`} />
-            </label>
-            <label className="flex items-center gap-2 text-muted">
-              秒
-              <input type="number" min="0" max="99" value={miao} onChange={(e) => setMiao(e.target.value)} placeholder="如 45" className={`${inputCls} w-24`} />
-            </label>
-            <span className="text-xs text-muted">以分钟、秒钟各位数字之和起卦</span>
-          </div>
-        )}
+        {/* 分秒卦已删除（v0.10 改进建议2 #9） */}
       </div>
 
       {/* 起卦按钮 + 错误提示 */}

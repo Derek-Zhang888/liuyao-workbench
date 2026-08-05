@@ -30,14 +30,38 @@ export async function addTag({ name, color } = {}) {
 }
 
 /**
- * 删除标签（仅删标签表记录，不触碰任何卦例）
+ * 删除标签：
+ *   1. 删标签表记录
+ *   2. 同步从所有卦例的 tags 数组中移除该标签名（v0.10 改进建议2 #10 联动要求）
+ * 单事务内完成，原子回滚（任一失败则全部回滚）。
  * @param {number} id 标签 id
+ * @returns {Promise<{removedFromGuashi:number}>} 同步被更新的卦例条数
  */
 export async function deleteTag(id) {
   const db = await openDB();
-  const tx = db.transaction('tags', 'readwrite');
-  await reqToPromise(tx.objectStore('tags').delete(id));
+  const tx = db.transaction(['tags', 'guashi'], 'readwrite');
+  const tagStore = tx.objectStore('tags');
+  const guashiStore = tx.objectStore('guashi');
+  const tag = await reqToPromise(tagStore.get(id));
+  if (!tag) {
+    await txDone(tx);
+    return { removedFromGuashi: 0 };
+  }
+  await reqToPromise(tagStore.delete(id));
+  const all = await reqToPromise(guashiStore.getAll());
+  const now = Date.now();
+  let removedFromGuashi = 0;
+  for (const g of all) {
+    if (Array.isArray(g.tags) && g.tags.includes(tag.name)) {
+      const newTags = g.tags.filter((t) => t !== tag.name);
+      await reqToPromise(
+        guashiStore.put({ ...g, tags: newTags, updatedAt: now }),
+      );
+      removedFromGuashi += 1;
+    }
+  }
   await txDone(tx);
+  return { removedFromGuashi };
 }
 
 /**

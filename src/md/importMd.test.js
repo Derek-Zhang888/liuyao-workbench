@@ -170,7 +170,6 @@ describe('mdToGuashi 起卦参数', () => {
       ['number', { n1: 1, n2: 2, n3: 3 }],
       ['number', { n1: 1, n2: 2, n3: 3, method: 2 }],
       ['baoshu', { digits: '3412' }],
-      ['fenmiao', { ms: 12, ss: 34 }],
       ['time', { date: '2026-08-04 14:30' }],
       ['computer', { lines: '111111' }],
       ['computer', { lines: '111111', dong: [0, 2] }], // F1
@@ -232,8 +231,6 @@ describe('mdToGuashi 起卦参数', () => {
     expect(g.params).toEqual({});
     const g2 = mdToGuashi('---\ntitle: x\n起卦参数: 数字卦|1,,3|2026-08-04\n---\n\n# x').guashi;
     expect(g2.params).toEqual({ n1: 1, n3: 3 });
-    const g3 = mdToGuashi('---\ntitle: x\n起卦参数: 分秒卦|12,|2026-08-04\n---\n\n# x').guashi;
-    expect(g3.params).toEqual({ ms: 12 });
   });
 
   test('起卦参数按前两个 | 拆为三段（多余段并入时间段，容错）', () => {

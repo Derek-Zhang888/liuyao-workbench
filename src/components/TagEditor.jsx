@@ -9,11 +9,13 @@
 import { useEffect, useState } from 'react'
 import { listTags, addTag, deleteTag, ensurePresetTags } from '../db/tagsRepo.js'
 import { paletteColor } from '../config/presetTags.js'
+import ConfirmDialog, { isNoRemind } from './ConfirmDialog.jsx'
 
 export default function TagEditor({ selected, onChange }) {
   const [all, setAll] = useState([])
   const [newName, setNewName] = useState('')
   const [error, setError] = useState('')
+  const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
 
   // 预置标签种子写入（单例防重复）+ 加载
   useEffect(() => {
@@ -54,14 +56,13 @@ export default function TagEditor({ selected, onChange }) {
     }
   }
 
-  /** 删除标签：只删标签本身，已保存卦例不受影响；同时从当前选中项移除 */
-  const remove = async (tag) => {
-    if (
-      !window.confirm(
-        `确定删除标签「${tag.name}」吗？\n只删除标签本身，已保存的卦例不会受影响。`,
-      )
-    )
-      return
+  /** 删除标签：弹窗确认后联动删除（v0.10 #10）；勾选「不再提醒」后下次直接删 */
+  const TAG_DELETE_KEY = 'tag-delete'
+  const requestDelete = (tag) => {
+    if (isNoRemind(TAG_DELETE_KEY)) doDelete(tag)
+    else setPendingDeleteTag(tag)
+  }
+  const doDelete = async (tag) => {
     try {
       await deleteTag(tag.id)
       setAll(await listTags())
@@ -70,6 +71,14 @@ export default function TagEditor({ selected, onChange }) {
     } catch (e) {
       setError('删除标签失败：' + e.message)
     }
+  }
+  const confirmDelete = (remember) => {
+    if (remember) {
+      try { localStorage.setItem(`liuyao-noremind-${TAG_DELETE_KEY}`, '1') } catch (_) { /* 静默 */ }
+    }
+    const tag = pendingDeleteTag
+    setPendingDeleteTag(null)
+    if (tag) doDelete(tag)
   }
 
   return (
@@ -103,9 +112,9 @@ export default function TagEditor({ selected, onChange }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => remove(t)}
+                  onClick={() => requestDelete(t)}
                   className="ml-0.5 rounded-full px-1 text-xs leading-none text-muted transition-colors hover:bg-red/10 hover:text-red"
-                  title={`删除标签「${t.name}」（不影响已保存的卦例）`}
+                  title={`删除标签「${t.name}」（同时从卦例移除）`}
                   aria-label={`删除标签 ${t.name}`}
                 >
                   ×
@@ -137,6 +146,22 @@ export default function TagEditor({ selected, onChange }) {
         </button>
         {error && <span className="text-xs text-red">{error}</span>}
       </div>
+
+      {/* 删除标签确认弹窗（与卦例库页共用提示语，记忆不互通以避免误删） */}
+      <ConfirmDialog
+        open={!!pendingDeleteTag}
+        title="删除标签"
+        message={
+          pendingDeleteTag
+            ? `删除标签「${pendingDeleteTag.name}」？\n将同时从所有卦例中移除该标签名（不可撤销）。`
+            : ''
+        }
+        confirmLabel="删除"
+        cancelLabel="取消"
+        noRemindStorageKey="tag-delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteTag(null)}
+      />
     </div>
   )
 }

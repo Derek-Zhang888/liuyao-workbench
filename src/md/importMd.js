@@ -194,15 +194,6 @@ function parseInput(method, input) {
       if (m2) p.method = 2;
       return p;
     }
-    case 'fenmiao': {
-      const [ms, ss] = csv(input);
-      const p = {};
-      const m = num(ms);
-      const s = num(ss);
-      if (m !== undefined) p.ms = m;
-      if (s !== undefined) p.ss = s;
-      return p;
-    }
     case 'time':
       return input ? { date: input } : {};
     default:
