@@ -132,13 +132,19 @@ const GUA_NAME_ALIASES = {
   水火未济: '火水未济',
 };
 
-/** 搜索关键词展开：对「水火/火水」互换写法与别名生成多个候选关键词，
- *  使输入「水火」「水火未济」等也能命中标准名「火水未济」（v0.10 建议3 #4）。 */
+/** 搜索关键词展开：对「水火/火水」互换写法与别名（含别名键/标准名反向子串匹配）生成多个候选关键词，
+ *  使输入单字「水」/「火」也能命中 火水未济 / 水火既济（v0.10 建议3 #4 / 建议4 #1）。 */
 function aliasKeywords(k) {
   const out = new Set([k]);
   if (k.includes('水火')) out.add(k.replace('水火', '火水'));
   if (k.includes('火水')) out.add(k.replace('火水', '水火'));
   if (GUA_NAME_ALIASES[k]) out.add(GUA_NAME_ALIASES[k]);
+  // 别名反向变体：输入「水」时把别名键含 k 的键与对应标准名加入候选
+  // （如 k='水' → 加入 '水火未济' 和 '火水未济'，使火水未济 rank 0/2 命中）
+  for (const [alias, canonical] of Object.entries(GUA_NAME_ALIASES)) {
+    if (alias.includes(k)) out.add(alias);
+    if (canonical.includes(k)) out.add(canonical);
+  }
   return [...out];
 }
 

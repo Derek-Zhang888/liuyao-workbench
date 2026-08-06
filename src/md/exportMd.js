@@ -169,15 +169,17 @@ function renderPan(pan) {
   const head = [
     `本卦：${ben.name}（${ben.gong}宫）`,
     bian ? `变卦：${bian.name}（${bian.gong}宫）` : '变卦：（无变卦）',
-    `月建：${pan.yuejian ?? ''}  日建：${pan.dayGZ ?? ''}  旬空：${(pan.xunkong ?? []).join('')}`,
+    // v0.10 建议4 #9：补太岁干支 + 月建天干；删除原「旺衰」列
+    `太岁：${pan.yearGZ ?? ''}  月建：${pan.monthGZ ?? ''}  日建：${pan.dayGZ ?? ''}  时建：${pan.hourGZ ?? ''}  旬空：${(pan.xunkong ?? []).join('')}`,
   ].join('\n');
-  const header = '| 六神 | 六亲 | 地支 | 五行 | 世应 | 爻画 | 旺衰 |';
-  const sep = '|------|------|------|------|------|------|------|';
+  const header = '| 六神 | 六亲 | 地支 | 五行 | 爻画 | 世应 |';
+  const sep = '|------|------|------|------|------|------|';
   const rows = (pan.yao ?? []).map((y, i) => {
     const shi = y.shi ? '世' : y.ying ? '应' : '';
     const line = `${y.line ?? ''}${y.dong ? '●' : ''}`;
     const liuqin = LIUQIN_FULL[y.liuqin] ?? y.liuqin ?? '';
-    return `| ${(pan.liushen ?? [])[i] ?? ''} | ${liuqin} | ${y.zhi ?? ''} | ${y.wuxing ?? ''} | ${shi} | ${line} | ${y.wangshuai ?? ''} |`;
+    // 列序：五行后是爻画，再到世应（v0.10 建议4 #9）
+    return `| ${(pan.liushen ?? [])[i] ?? ''} | ${liuqin} | ${y.zhi ?? ''} | ${y.wuxing ?? ''} | ${line} | ${shi} |`;
   });
   return [head, header, sep, ...rows].join('\n');
 }
@@ -212,8 +214,9 @@ export function guashiToMd(g) {
     section('盘面', renderPan(rec.panSnapshot)),
     section('断语', rec.duanyu ?? ''),
     section('应期', rec.yingqi ?? ''),
-    section('备注', rec.beizhu ?? ''),
+    // v0.10 建议4 #6：反馈/备注 位置互换
     section('反馈', rec.fankui ?? ''),
+    section('备注', rec.beizhu ?? ''),
   ].join('\n\n');
 
   return `---\n${FM_GUIDE}\n${fm}\n---\n\n# ${rec.title ?? ''}\n\n${body}\n`;

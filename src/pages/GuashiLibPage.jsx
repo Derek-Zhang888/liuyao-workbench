@@ -13,10 +13,11 @@
  *     md 里的标签若库中不存在，导入时用 ensureTags 自动新建（筛选栏与占断界面随即可用）
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { QIGUA_METHODS } from '../engine/qigua.js'
 import { addGuashi, getGuashi, listGuashi, softDelete, updateGuashi } from '../db/guashiRepo.js'
-import { deleteTag, ensurePresetTags, ensureTags, listTags } from '../db/tagsRepo.js'
+import { addTag, deleteTag, ensurePresetTags, ensureTags, listTags } from '../db/tagsRepo.js'
+import { paletteColor } from '../config/presetTags.js'
 import { mdToGuashi } from '../md/importMd.js'
 import PanView from '../components/PanView.jsx'
 import DuanInput from '../components/DuanInput.jsx'
@@ -28,6 +29,43 @@ import { resolvePan } from '../utils/panResolve.js'
 
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 const STATUS_OPTIONS = ['全部', '未反馈', '已反馈']
+
+/** 卦例库筛选栏内嵌的新增标签输入：与排盘占断页 TagEditor 共用 tags 表（v0.10 建议4 #3） */
+function AddTagInline({ onAdded }) {
+  const [name, setName] = useState('')
+  const [err, setErr] = useState('')
+  const submit = async () => {
+    const n = name.trim()
+    if (!n) return
+    try {
+      const rec = await addTag({ name: n, color: paletteColor(Math.random() * 1000 | 0) })
+      setName('')
+      setErr('')
+      onAdded?.(rec)
+    } catch (e) {
+      setErr(e.message || '新增失败')
+    }
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-sm">
+      <input
+        value={name}
+        onChange={(e) => { setName(e.target.value); setErr('') }}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+        placeholder="新增标签名"
+        className="w-32 rounded-md border border-border bg-bg px-2 py-1 text-sm text-text outline-none focus:border-gold"
+      />
+      <button
+        type="button"
+        onClick={submit}
+        className="rounded-md border border-gold px-2 py-1 text-xs text-gold transition-colors hover:bg-goldSoft"
+      >
+        新增
+      </button>
+      {err && <span className="text-xs text-red">{err}</span>}
+    </span>
+  )
+}
 
 /** 从记录中提取占断字段（DuanInput 的 value 结构） */
 function duanOf(rec) {
@@ -46,12 +84,25 @@ function duanOf(rec) {
 
 export default function GuashiLibPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const fileRef = useRef(null)
+
+  // 筛选状态全部走 URL searchParams（v0.10 建议4 #5：统计页跳转带 query；避免同步循环）
+  const statusFilter = searchParams.get('status') || '全部'
+  const jixiongOkFilter = searchParams.get('jixiongOk') || ''
+  const yingqiOkFilter = searchParams.get('yingqiOk') || ''
+  const fangweiOkFilter = searchParams.get('fangweiOk') || ''
+  /** 设置单个 URL 参数（空值移除，保持 URL 干净） */
+  const setFilter = (key, value) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
 
   const [records, setRecords] = useState([])
   const [allTags, setAllTags] = useState([])
   const [selTags, setSelTags] = useState([])
-  const [statusFilter, setStatusFilter] = useState('全部')
   const [keyword, setKeyword] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
   const [editing, setEditing] = useState(null) // 详情/编辑中的卦例记录（null = 列表态）
@@ -125,12 +176,19 @@ export default function GuashiLibPage() {
     if (tag) doDeleteTag(tag)
   }
 
-  /** 筛选后的展示列表（tag 多选为「任一命中」）；
- *  有标签筛选时，命中标签数越多的卦例排越前（v0.10 建议3 #7），命中数相同保持原序（新→旧） */
+  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8）；
+ *  - tag 多选为「任一命中」；命中标签数越多的卦例排越前
+ *  - status=已反馈 时支持六项对错筛选（jixiongOk/yingqiOk/fangweiOk 为 '对'/'错'）*/
   const filtered = useMemo(() => {
     const list = records.filter((r) => {
       if (selTags.length > 0 && !selTags.some((t) => (r.tags ?? []).includes(t))) return false
       if (statusFilter !== '全部' && r.status !== statusFilter) return false
+      // 六项对错筛选（仅当 status=已反馈 时实际生效，否则无 records 可筛）
+      if (statusFilter === '已反馈') {
+        if (jixiongOkFilter && r.jixiongOk !== jixiongOkFilter) return false
+        if (yingqiOkFilter && r.yingqiOk !== yingqiOkFilter) return false
+        if (fangweiOkFilter && r.fangweiOk !== fangweiOkFilter) return false
+      }
       const kw = keyword.trim()
       if (kw && !(r.title ?? '').includes(kw) && !(r.duanyu ?? '').includes(kw)) return false
       return true
@@ -140,7 +198,7 @@ export default function GuashiLibPage() {
       return [...list].sort((a, b) => hitCount(b) - hitCount(a))
     }
     return list
-  }, [records, selTags, statusFilter, keyword])
+  }, [records, selTags, statusFilter, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -447,23 +505,60 @@ export default function GuashiLibPage() {
                   </span>
                 )
               })}
+              {/* 新增标签（v0.10 建议4 #3）：与排盘占断页 TagEditor 共用 tags 表 */}
+              <AddTagInline onAdded={(t) => { refreshTags(); setMsg(`已新增标签「${t.name}」`); setError(''); }} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="w-10 shrink-0 text-sm text-muted">反馈</span>
-              {STATUS_OPTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatusFilter(s)}
-                  className={`rounded-md border px-3 py-1 text-sm transition-colors ${
-                    statusFilter === s
-                      ? 'border-gold bg-goldSoft text-gold'
-                      : 'border-border text-muted hover:text-text'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
+              <span className="w-10 shrink-0 text-sm text-muted">筛选</span>
+              {STATUS_OPTIONS.map((s) => {
+                const on = statusFilter === s
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setFilter('status', s === '全部' ? '' : s)}
+                    className={`rounded-md border px-3 py-1 text-sm transition-colors ${
+                      on
+                        ? 'border-gold bg-goldSoft text-gold'
+                        : 'border-border text-muted hover:text-text'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                )
+              })}
+              {/* 已反馈展开后的六项对错筛选（v0.10 建议4 #8） */}
+              {statusFilter === '已反馈' && (
+                <>
+                  <span className="ml-2 w-10 shrink-0 text-xs text-muted">对错</span>
+                  {[
+                    { key: 'jixiongOk', label: '吉凶' },
+                    { key: 'yingqiOk', label: '应期' },
+                    { key: 'fangweiOk', label: '方位' },
+                  ].flatMap((g) => [
+                    { dim: g.key, val: '对', label: `${g.label}对`, color: 'gold' },
+                    { dim: g.key, val: '错', label: `${g.label}错`, color: 'red' },
+                  ]).map((opt) => {
+                    const active = searchParams.get(opt.dim) === opt.val
+                    return (
+                      <button
+                        key={`${opt.dim}-${opt.val}`}
+                        type="button"
+                        onClick={() => setFilter(opt.dim, active ? '' : opt.val)}
+                        className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+                          active
+                            ? opt.color === 'gold'
+                              ? 'border-gold bg-goldSoft text-gold'
+                              : 'border-red bg-red/10 text-red'
+                            : 'border-border text-muted hover:text-text'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
               <input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}

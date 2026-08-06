@@ -153,8 +153,12 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       setError('请先起卦')
       return
     }
+    if (!duan.jixiong) {
+      setError('请选择吉凶（吉/凶必选）')
+      return
+    }
     if (duan.status === '已反馈' && !duan.jixiongOk) {
-      setError('已反馈时请选择吉凶对错（对/错/留空三选一）')
+      setError('已反馈时请选择吉凶对错（对/错必选）')
       return
     }
     setError('')

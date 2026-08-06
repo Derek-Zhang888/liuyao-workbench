@@ -103,7 +103,10 @@ describe('guashiToMd 三层格式', () => {
     expect(md).toContain('## 盘面');
     expect(md).toContain(`本卦：${snap.ben.name}`);
     expect(md).toContain(`变卦：${snap.bian.name}`);
-    expect(md).toContain('| 六神 | 六亲 | 地支 | 五行 | 世应 | 爻画 | 旺衰 |');
+    // v0.10 建议4 #9：列序改为 五行→爻画→世应，删除旺衰
+    expect(md).toContain('| 六神 | 六亲 | 地支 | 五行 | 爻画 | 世应 |');
+    // 太岁干支 + 月建天干
+    expect(md).toMatch(/太岁：[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥].+月建：[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]/);
     expect(md).toContain('子孙'); // 乾为天初爻孙子水
     expect(md).toContain('父母'); // 乾为天父戌土/父辰土
     expect(md).toContain('白虎'); // 庚日初爻六神白虎
@@ -180,8 +183,9 @@ describe('guashiToMd 三层格式', () => {
 
   test('盘面渲染：动爻●标记与世应列', () => {
     const md = guashiToMd(makeGuashi());
-    expect(md).toContain('| 青龙 | 父母 | 辰 | 土 | 应 | 1● | 旺 |'); // 三爻：应位 + 动爻
-    expect(md).toContain('| 螣蛇 | 父母 | 戌 | 土 | 世 | 1 | 旺 |'); // 上爻：世位
+    // 列序改为 五行|爻画|世应（删除旺衰）
+    expect(md).toContain('| 青龙 | 父母 | 辰 | 土 | 1● | 应 |'); // 三爻：应位 + 动爻
+    expect(md).toContain('| 螣蛇 | 父母 | 戌 | 土 | 1 | 世 |'); // 上爻：世位
   });
 });
 

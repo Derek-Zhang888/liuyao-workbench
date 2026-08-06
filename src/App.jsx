@@ -122,11 +122,11 @@ const sideSubClass = ({ isActive }) =>
     isActive ? 'bg-goldSoft text-gold' : 'text-muted hover:bg-bg hover:text-gold'
   }`
 
-/* 桌面侧栏主导航 */
+/* 桌面侧栏主导航（v0.10 建议4 #4：统计放第二项） */
 const MAIN_NAV = [
   { to: '/', label: '排盘', icon: <IconPaipan />, end: true },
-  { to: '/lib', label: '卦例库', icon: <IconLib /> },
   { to: '/stats', label: '统计', icon: <IconStats /> },
+  { to: '/lib', label: '卦例库', icon: <IconLib /> },
 ]
 
 /* ============ 应用外壳 ============ */
