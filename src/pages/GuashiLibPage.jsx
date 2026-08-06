@@ -120,23 +120,34 @@ export default function GuashiLibPage() {
   const [importResult, setImportResult] = useState(null) // {ok, fail:[{name,error}]}
   const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
 
-  // —— 会话级状态保留（v0.10 建议5 #2）：筛选 query 与编辑中卦例 id 存 sessionStorage，
-  //    切到统计/其他页再回来时恢复（统计页跳转带 query 时以 query 为准，覆盖会话值）——
-  // 恢复只在「首次挂载」执行一次（filterInitializedRef 标记）：
-  //   之后用户点「全部」等主动清空 URL 时不再被会话旧值拉回（修复卦例库「全部」无法选中）。
+  // —— 会话级状态保留（v0.10 建议5 #2 + 追加修复）：
+  //    筛选（URL query + 标签 selTags）与编辑中卦例 id 存 sessionStorage，
+  //    切到统计/其他页再回来时恢复；统计页跳转带 query 时以 query 为准（标签不恢复，遵循统计页规则）。
+  //    会话格式 JSON：{ q: <url query string>, tags: <string[]> }
+  //    恢复只在「首次挂载」执行一次（filterInitializedRef 标记）：
+  //    之后用户点「全部」等主动清空时不再被会话旧值拉回（修复「全部」无法选中）。
   const filterInitializedRef = useRef(false)
   useEffect(() => {
     if (!filterInitializedRef.current) {
       filterInitializedRef.current = true
       const cur = searchParams.toString()
-      const saved = sessionStorage.getItem(LIB_FILTER_KEY)
+      const raw = sessionStorage.getItem(LIB_FILTER_KEY)
+      let saved = null
+      if (raw) {
+        try { saved = JSON.parse(raw) } catch (_) { saved = { q: raw, tags: [] } } // 兼容旧纯字符串格式
+      }
       if (!cur && saved) {
-        setSearchParams(saved, { replace: true })
+        if (saved.q) setSearchParams(saved.q, { replace: true })
+        if (Array.isArray(saved.tags) && saved.tags.length) setSelTags(saved.tags)
         return // 恢复本帧不保存（等恢复触发的下一帧再保存）
       }
+      // URL 有 query（统计页跳转/直达）：标签不恢复，仅保存当前 query
+      try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: cur, tags: [] })) } catch (_) { /* 静默 */ }
+      return
     }
-    try { sessionStorage.setItem(LIB_FILTER_KEY, searchParams.toString()) } catch (_) { /* 静默 */ }
-  }, [searchParams])
+    // 首次之后：每次筛选变化都保存（含用户点「全部」清空 query）
+    try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: searchParams.toString(), tags: selTags })) } catch (_) { /* 静默 */ }
+  }, [searchParams, selTags])
   // 编辑中卦例 id 持久化（v0.10 建议5 #2）：
   // - mount 时从会话恢复（异步 getGuashi）
   // - editing 非空时保存 id
