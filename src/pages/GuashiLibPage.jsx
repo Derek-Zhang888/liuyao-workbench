@@ -30,6 +30,10 @@ import { resolvePan } from '../utils/panResolve.js'
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 const STATUS_OPTIONS = ['全部', '未反馈', '已反馈']
 
+/** 卦例库筛选/编辑状态的会话级持久化 key（v0.10 建议5 #2：切到统计页再回来保持原状态） */
+const LIB_FILTER_KEY = 'liuyao-lib-filter'
+const LIB_EDITING_KEY = 'liuyao-lib-editing-id'
+
 /** 卦例库筛选栏内嵌的新增标签输入：与排盘占断页 TagEditor 共用 tags 表（v0.10 建议4 #3） */
 function AddTagInline({ onAdded }) {
   const [name, setName] = useState('')
@@ -74,6 +78,7 @@ function duanOf(rec) {
     yingqi: rec.yingqi ?? '',
     beizhu: rec.beizhu ?? '',
     fankui: rec.fankui ?? '',
+    fangwei: rec.fangwei ?? '',
     jixiong: rec.jixiong ?? '',
     status: rec.status ?? '未反馈',
     jixiongOk: rec.jixiongOk ?? '',
@@ -92,6 +97,10 @@ export default function GuashiLibPage() {
   const jixiongOkFilter = searchParams.get('jixiongOk') || ''
   const yingqiOkFilter = searchParams.get('yingqiOk') || ''
   const fangweiOkFilter = searchParams.get('fangweiOk') || ''
+  // 未反馈展开的子筛选（v0.10 建议5 #4）：jixiong=吉/凶、yingqi=1（有应期）、fangwei=1（有方位）
+  const jixiongFilter = searchParams.get('jixiong') || ''
+  const yingqiHasFilter = searchParams.get('yingqi') === '1'
+  const fangweiHasFilter = searchParams.get('fangwei') === '1'
   /** 设置单个 URL 参数（空值移除，保持 URL 干净） */
   const setFilter = (key, value) => {
     const next = new URLSearchParams(searchParams)
@@ -110,6 +119,40 @@ export default function GuashiLibPage() {
   const [error, setError] = useState('')
   const [importResult, setImportResult] = useState(null) // {ok, fail:[{name,error}]}
   const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
+
+  // —— 会话级状态保留（v0.10 建议5 #2）：筛选 query 与编辑中卦例 id 存 sessionStorage，
+  //    切到统计/其他页再回来时恢复（统计页跳转带 query 时以 query 为准，覆盖会话值）——
+  // 单 effect 内「先恢复后保存」：mount 时若 URL 无 query 且会话里有旧筛选 → 恢复后本帧不保存，
+  // 等恢复触发的下一帧再保存；天然免疫 StrictMode 双执行 effect。
+  useEffect(() => {
+    const cur = searchParams.toString()
+    const saved = sessionStorage.getItem(LIB_FILTER_KEY)
+    if (!cur && saved) {
+      setSearchParams(saved, { replace: true })
+      return
+    }
+    try { sessionStorage.setItem(LIB_FILTER_KEY, cur) } catch (_) { /* 静默 */ }
+  }, [searchParams])
+  // 编辑中卦例 id 持久化（v0.10 建议5 #2）：
+  // - mount 时从会话恢复（异步 getGuashi）
+  // - editing 非空时保存 id
+  // - 用户显式返回列表（setEditing(null)）时由下方 backToList 清理会话
+  useEffect(() => {
+    const saved = sessionStorage.getItem(LIB_EDITING_KEY)
+    if (!saved) return
+    getGuashi(Number(saved))
+      .then((rec) => { if (rec && !rec.deleted) setEditing(rec) })
+      .catch(() => { /* 卦例已不存在则忽略 */ })
+  }, [])
+  useEffect(() => {
+    if (!editing) return
+    try { sessionStorage.setItem(LIB_EDITING_KEY, String(editing.id)) } catch (_) { /* 静默 */ }
+  }, [editing])
+  /** 返回列表：清除编辑会话（避免下次挂载误恢复） */
+  const backToList = () => {
+    setEditing(null)
+    try { sessionStorage.removeItem(LIB_EDITING_KEY) } catch (_) { /* 静默 */ }
+  }
 
   const tagColors = useMemo(
     () => Object.fromEntries(allTags.map((t) => [t.name, t.color])),
@@ -176,18 +219,23 @@ export default function GuashiLibPage() {
     if (tag) doDeleteTag(tag)
   }
 
-  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8）；
+  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4）；
  *  - tag 多选为「任一命中」；命中标签数越多的卦例排越前
- *  - status=已反馈 时支持六项对错筛选（jixiongOk/yingqiOk/fangweiOk 为 '对'/'错'）*/
+ *  - status=已反馈：jixiongOk/yingqiOk/fangweiOk 六项对错筛选
+ *  - status=未反馈：jixiong(吉/凶)/yingqi(有应期)/fangwei(有方位) 四项子筛选*/
   const filtered = useMemo(() => {
     const list = records.filter((r) => {
       if (selTags.length > 0 && !selTags.some((t) => (r.tags ?? []).includes(t))) return false
       if (statusFilter !== '全部' && r.status !== statusFilter) return false
-      // 六项对错筛选（仅当 status=已反馈 时实际生效，否则无 records 可筛）
       if (statusFilter === '已反馈') {
         if (jixiongOkFilter && r.jixiongOk !== jixiongOkFilter) return false
         if (yingqiOkFilter && r.yingqiOk !== yingqiOkFilter) return false
         if (fangweiOkFilter && r.fangweiOk !== fangweiOkFilter) return false
+      }
+      if (statusFilter === '未反馈') {
+        if (jixiongFilter && r.jixiong !== jixiongFilter) return false
+        if (yingqiHasFilter && !(r.yingqi ?? '').trim()) return false
+        if (fangweiHasFilter && !(r.fangwei ?? '').trim()) return false
       }
       const kw = keyword.trim()
       if (kw && !(r.title ?? '').includes(kw) && !(r.duanyu ?? '').includes(kw)) return false
@@ -198,7 +246,7 @@ export default function GuashiLibPage() {
       return [...list].sort((a, b) => hitCount(b) - hitCount(a))
     }
     return list
-  }, [records, selTags, statusFilter, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter])
+  }, [records, selTags, statusFilter, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -252,7 +300,7 @@ export default function GuashiLibPage() {
     if (!window.confirm(`确定将「${g.title || '未命名卦例'}」移入回收站吗？`)) return
     await softDelete(g.id)
     setMsg('已移入回收站')
-    if (editing?.id === g.id) setEditing(null)
+    if (editing?.id === g.id) backToList()
     setSelectedIds((ids) => ids.filter((x) => x !== g.id))
     refresh()
   }
@@ -324,8 +372,9 @@ export default function GuashiLibPage() {
 
   const clearFilters = () => {
     setSelTags([])
-    setStatusFilter('全部')
     setKeyword('')
+    // 清空 URL 全部筛选（status / 已反馈六项对错 / 未反馈四项子项），v0.10 建议5 #5
+    setSearchParams({}, { replace: true })
   }
 
   const panRes = editing ? resolvePan(editing) : null
@@ -377,7 +426,7 @@ export default function GuashiLibPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setEditing(null)
+                  backToList()
                   setMsg('')
                   setError('')
                 }}
@@ -464,50 +513,9 @@ export default function GuashiLibPage() {
       ) : (
         /* ============ 列表视图 ============ */
         <>
-          {/* 筛选栏 */}
+          {/* 筛选栏（v0.10 建议5 #5：筛选行在标签行上面） */}
           <section className="space-y-3 rounded-xl border border-border bg-panel p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-10 shrink-0 text-sm text-muted">标签</span>
-              {allTags.map((t) => {
-                const on = selTags.includes(t.name)
-                return (
-                  <span
-                    key={t.id}
-                    className="flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors"
-                    style={{
-                      borderColor: on ? t.color : 'var(--border)',
-                      color: on ? t.color : 'var(--muted)',
-                      background: on ? t.color + '1f' : 'transparent',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))
-                      }
-                      className="flex items-center gap-1.5"
-                      style={{ color: 'inherit' }}
-                      title={on ? '取消筛选' : '按此标签筛选'}
-                    >
-                      <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
-                      {t.name}
-                      {on && <span className="text-xs">✓</span>}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTag(t)}
-                      className="ml-0.5 rounded-full px-1 text-xs leading-none text-muted transition-colors hover:bg-red/10 hover:text-red"
-                      title={`删除标签「${t.name}」（不影响已保存的卦例）`}
-                      aria-label={`删除标签 ${t.name}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                )
-              })}
-              {/* 新增标签（v0.10 建议4 #3）：与排盘占断页 TagEditor 共用 tags 表 */}
-              <AddTagInline onAdded={(t) => { refreshTags(); setMsg(`已新增标签「${t.name}」`); setError(''); }} />
-            </div>
+            {/* 筛选行：状态 + 已反馈六项对错 / 未反馈四项子筛选 + 搜索 */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-10 shrink-0 text-sm text-muted">筛选</span>
               {STATUS_OPTIONS.map((s) => {
@@ -559,12 +567,85 @@ export default function GuashiLibPage() {
                   })}
                 </>
               )}
+              {/* 未反馈展开后的四项子筛选：吉/凶/应期/方位（v0.10 建议5 #4） */}
+              {statusFilter === '未反馈' && (
+                <>
+                  <span className="ml-2 w-10 shrink-0 text-xs text-muted">子项</span>
+                  {[
+                    { key: 'jixiong', val: '吉', label: '吉', color: 'gold' },
+                    { key: 'jixiong', val: '凶', label: '凶', color: 'red' },
+                    { key: 'yingqi', val: '1', label: '应期', color: 'gold' },
+                    { key: 'fangwei', val: '1', label: '方位', color: 'gold' },
+                  ].map((opt) => {
+                    const active = searchParams.get(opt.key) === opt.val
+                    return (
+                      <button
+                        key={`${opt.key}-${opt.val}`}
+                        type="button"
+                        onClick={() => setFilter(opt.key, active ? '' : opt.val)}
+                        className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+                          active
+                            ? opt.color === 'gold'
+                              ? 'border-gold bg-goldSoft text-gold'
+                              : 'border-red bg-red/10 text-red'
+                            : 'border-border text-muted hover:text-text'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
               <input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 placeholder="搜索标题或断语…"
                 className="ml-auto w-full max-w-xs rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none transition-colors focus:border-gold"
               />
+            </div>
+            {/* 标签行（v0.10 建议5 #5：移到筛选行下面） */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-10 shrink-0 text-sm text-muted">标签</span>
+              {allTags.map((t) => {
+                const on = selTags.includes(t.name)
+                return (
+                  <span
+                    key={t.id}
+                    className="flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors"
+                    style={{
+                      borderColor: on ? t.color : 'var(--border)',
+                      color: on ? t.color : 'var(--muted)',
+                      background: on ? t.color + '1f' : 'transparent',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))
+                      }
+                      className="flex items-center gap-1.5"
+                      style={{ color: 'inherit' }}
+                      title={on ? '取消筛选' : '按此标签筛选'}
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
+                      {t.name}
+                      {on && <span className="text-xs">✓</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTag(t)}
+                      className="ml-0.5 rounded-full px-1 text-xs leading-none text-muted transition-colors hover:bg-red/10 hover:text-red"
+                      title={`删除标签「${t.name}」（同时从卦例移除）`}
+                      aria-label={`删除标签 ${t.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )
+              })}
+              {/* 新增标签（v0.10 建议4 #3）：与排盘占断页 TagEditor 共用 tags 表 */}
+              <AddTagInline onAdded={(t) => { refreshTags(); setMsg(`已新增标签「${t.name}」`); setError(''); }} />
             </div>
           </section>
 

@@ -141,12 +141,12 @@ export default function PanView({ pan }) {
         )}
       </div>
 
-      {/* 表头 */}
+      {/* 表头（v0.10 建议5 #6：删「爻画」「世应」字样，爻位旁的世应角标保留） */}
       <div
         className={`${rowGridCls} border-b border-border bg-black/20 py-1.5 px-3 text-xs text-muted`}
       >
         <span>六神</span>
-        <span>本卦 · 爻画 · 世应</span>
+        <span>本卦</span>
         <span>变卦</span>
       </div>
 
@@ -174,16 +174,11 @@ export default function PanView({ pan }) {
                 <span className="mt-0.5 block text-[11px] text-muted">{LINE_NAMES[i]}</span>
               </span>
 
-              {/* 本卦六亲 + 世应 + 爻画 + 伏神 */}
+              {/* 本卦六亲 + 世应 + 爻画 + 伏神（v0.10 建议5 #6：神煞如华盖/驿马不再上盘） */}
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5">
                   <LiqinText liuqin={y.liuqin} zhi={y.zhi} wuxing={y.wuxing} />
                   <ShiYingBadge y={y} />
-                  {y.shensha && y.shensha.length ? (
-                    <span className="rounded-sm bg-white/5 px-1 text-[10px] leading-4 text-gold">
-                      {y.shensha.join('')}
-                    </span>
-                  ) : null}
                 </span>
                 <span className="mt-1 flex items-center gap-1 whitespace-nowrap text-sm leading-none">
                   <span className={y.dong ? 'text-gold' : 'text-text'}>

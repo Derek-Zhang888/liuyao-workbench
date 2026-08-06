@@ -61,7 +61,7 @@ export default function DuanInput({ value, onChange }) {
 
   return (
     <div className="space-y-4">
-      {/* 断语 / 应期（排盘页三栏布局下列宽较窄，纵向堆叠更易读） */}
+      {/* 断语 / 应期 / 方位（v0.10 建议5 #1：应期下加方位文本框） */}
       <div className="space-y-3">
         <div>
           <div className="mb-1.5 text-sm text-muted">断语</div>
@@ -81,6 +81,16 @@ export default function DuanInput({ value, onChange }) {
             placeholder="应期预测…"
             value={value.yingqi}
             onChange={(e) => set('yingqi', e.target.value)}
+          />
+        </div>
+        <div>
+          <div className="mb-1.5 text-sm text-muted">方位</div>
+          <textarea
+            rows={2}
+            className={textAreaCls}
+            placeholder="方位预测…（有文字时卦例库未反馈卡片显示方位标志）"
+            value={value.fangwei}
+            onChange={(e) => set('fangwei', e.target.value)}
           />
         </div>
       </div>

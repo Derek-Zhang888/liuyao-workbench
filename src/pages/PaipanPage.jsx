@@ -25,6 +25,7 @@ const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 const EMPTY_DUAN = {
   duanyu: '',
   yingqi: '',
+  fangwei: '',
   beizhu: '',
   fankui: '',
   jixiong: '',
@@ -249,6 +250,7 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       jixiongOk: rec.jixiongOk ?? '',
       yingqiOk: rec.yingqiOk ?? '',
       fangweiOk: rec.fangweiOk ?? '',
+      fangwei: rec.fangwei ?? '',
     })
     setTags(Array.isArray(rec.tags) ? rec.tags : [])
     setSaved(rec)

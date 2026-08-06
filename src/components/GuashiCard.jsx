@@ -16,17 +16,6 @@ function tagStyle(color) {
   return { borderColor: c, color: c, background: c + '1f' }
 }
 
-/** 指南针图标（内联 SVG，方位标志用，v0.10 建议4 #8） */
-function CompassIcon({ className = 'h-4 w-4' }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 4.5l1.4 3h-2.8z M12 19.5l-1.4-3h2.8z M4.5 12l3-1.4v2.8z M19.5 12l-3 1.4v-2.8z" fill="currentColor" />
-      <path d="M12 12l4-5-1 6z M12 12l-4 5 1-6z" fill="currentColor" />
-    </svg>
-  )
-}
-
 export default function GuashiCard({
   guashi,
   tagColors = {},
@@ -142,11 +131,11 @@ export default function GuashiCard({
                 }`}
                 title={`应期${fed ? (yqOk === '对' ? '对' : yqOk === '错' ? '错' : '未定') : '已记'}`}
               >
-                🕰
+                应期
                 {fed && (yqOk === '对' ? '✓' : yqOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* 方位标志：已反馈显示 方位✓/✗；未反馈显示 方位图标 */}
+            {/* 方位标志：已反馈显示 方位✓/方位✕；未反馈显示 方位（v0.10 建议5 #3 改文字） */}
             {(fed ? fwOk : fw) && (
               <span
                 className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
@@ -158,7 +147,7 @@ export default function GuashiCard({
                 }`}
                 title={`方位${fed ? (fwOk === '对' ? '对' : fwOk === '错' ? '错' : '未定') : '已记'}`}
               >
-                <CompassIcon className="h-3.5 w-3.5" />
+                方位
                 {fed && (fwOk === '对' ? '✓' : fwOk === '错' ? '✗' : '')}
               </span>
             )}
