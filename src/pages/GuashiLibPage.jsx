@@ -122,16 +122,20 @@ export default function GuashiLibPage() {
 
   // —— 会话级状态保留（v0.10 建议5 #2）：筛选 query 与编辑中卦例 id 存 sessionStorage，
   //    切到统计/其他页再回来时恢复（统计页跳转带 query 时以 query 为准，覆盖会话值）——
-  // 单 effect 内「先恢复后保存」：mount 时若 URL 无 query 且会话里有旧筛选 → 恢复后本帧不保存，
-  // 等恢复触发的下一帧再保存；天然免疫 StrictMode 双执行 effect。
+  // 恢复只在「首次挂载」执行一次（filterInitializedRef 标记）：
+  //   之后用户点「全部」等主动清空 URL 时不再被会话旧值拉回（修复卦例库「全部」无法选中）。
+  const filterInitializedRef = useRef(false)
   useEffect(() => {
-    const cur = searchParams.toString()
-    const saved = sessionStorage.getItem(LIB_FILTER_KEY)
-    if (!cur && saved) {
-      setSearchParams(saved, { replace: true })
-      return
+    if (!filterInitializedRef.current) {
+      filterInitializedRef.current = true
+      const cur = searchParams.toString()
+      const saved = sessionStorage.getItem(LIB_FILTER_KEY)
+      if (!cur && saved) {
+        setSearchParams(saved, { replace: true })
+        return // 恢复本帧不保存（等恢复触发的下一帧再保存）
+      }
     }
-    try { sessionStorage.setItem(LIB_FILTER_KEY, cur) } catch (_) { /* 静默 */ }
+    try { sessionStorage.setItem(LIB_FILTER_KEY, searchParams.toString()) } catch (_) { /* 静默 */ }
   }, [searchParams])
   // 编辑中卦例 id 持久化（v0.10 建议5 #2）：
   // - mount 时从会话恢复（异步 getGuashi）
