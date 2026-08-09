@@ -1,7 +1,7 @@
 {
   "name": "liuyao-workbench",
   "private": false,
-  "version": "1.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init",
-    "tauri:android:build": "tauri android build --apk"
+    "tauri:android:build": "node scripts/build-apk.mjs",
+    "apk": "node scripts/build-apk.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

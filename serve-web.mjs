@@ -61,13 +61,28 @@ const server = createServer(async (req, res) => {
   }
 })
 
-server.listen(PORT, HOST, () => {
-  const url = `http://${HOST}:${PORT}/`
-  console.log('')
-  console.log('  六爻工作台 · Web 版已启动')
-  console.log(`  ➜  ${url}`)
-  console.log('  关闭本窗口即可退出服务器')
-  console.log('')
-  // 自动打开浏览器（Windows）
-  exec(`start "" "${url}"`, { shell: true })
-})
+/** 启动监听：端口被占用时自动改用下一个端口（最多尝试 5 个），避免 EADDRINUSE 直接崩溃 */
+function listen(port) {
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE' && port < PORT + 4) {
+      console.log(`  ⚠ 端口 ${port} 已被占用，自动改用 ${port + 1}...`)
+      listen(port + 1)
+    } else {
+      console.error('\n  启动失败：' + err.message)
+      console.error('  可运行 node serve-web.mjs <端口号> 手动指定其他端口（如 9000）\n')
+      process.exit(1)
+    }
+  })
+  server.listen(port, HOST, () => {
+    const url = `http://${HOST}:${port}/`
+    console.log('')
+    console.log('  六爻工作台 · Web 版已启动')
+    console.log(`  ➜  ${url}`)
+    console.log('  关闭本窗口即可退出服务器')
+    console.log('')
+    // 自动打开浏览器（Windows）
+    exec(`start "" "${url}"`, { shell: true })
+  })
+}
+
+listen(PORT)
