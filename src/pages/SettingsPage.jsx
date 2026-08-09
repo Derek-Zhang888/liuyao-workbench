@@ -835,7 +835,7 @@ export default function SettingsPage() {
             <span className="text-text">v{APP_VERSION} 正式版</span>
           </p>
           <p className="text-xs text-muted">
-            本地排盘与卦例管理工具：9 种起卦方式、自占断记录、统计复盘与错题本、Markdown 与 JSON
+            本地排盘与卦例管理工具：7 种起卦方式、天文级干支历法、占断记录与多维统计复盘、Markdown 与 JSON
             导入导出。数据保存在浏览器 IndexedDB 中，清理浏览器数据前请先导出备份。
           </p>
         </div>
