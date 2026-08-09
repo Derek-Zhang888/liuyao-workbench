@@ -151,6 +151,7 @@ export default function GuashiLibPage() {
   const [editing, setEditing] = useState(null) // 详情/编辑中的卦例记录（null = 列表态）
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  const [exportPath, setExportPath] = useState('') // v1.0.0：最近一次导出的完整路径（提示分行显示）
   const [importResult, setImportResult] = useState(null) // {ok, fail:[{name,error}]}
   const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
 
@@ -399,9 +400,15 @@ export default function GuashiLibPage() {
   const handleBatchExport = async () => {
     if (!selectedRecords.length) return
     setMsg(`开始导出 ${selectedRecords.length} 条卦例…`)
+    setExportPath('')
     const r = await downloadGuashiBatch(selectedRecords)
-    if (r && r.ok) setMsg(r.message || `已导出 ${selectedRecords.length} 条 md 文件`)
-    else setMsg((r && r.message) || `导出未完成（已取消或保存失败）`)
+    if (r && r.ok) {
+      setMsg(r.message || `已导出 ${selectedRecords.length} 条 md 文件`)
+      setExportPath(r.path || '')
+    } else {
+      setMsg((r && r.message) || `导出未完成（已取消或保存失败）`)
+      setExportPath('')
+    }
   }
 
   const handleBatchDelete = async () => {
@@ -430,8 +437,13 @@ export default function GuashiLibPage() {
 
   const handleExportOne = async (g) => {
     const r = await downloadGuashiMd(g)
-    if (r && r.ok) setMsg(r.message || `已导出「${g.title || '未命名卦例'}」`)
-    else setMsg((r && r.message) || `导出未完成（已取消或保存失败）`)
+    if (r && r.ok) {
+      setMsg(r.message || `已导出「${g.title || '未命名卦例'}」`)
+      setExportPath(r.path || '')
+    } else {
+      setMsg((r && r.message) || `导出未完成（已取消或保存失败）`)
+      setExportPath('')
+    }
   }
 
   const handleDeleteOne = async (g) => {
@@ -561,8 +573,9 @@ export default function GuashiLibPage() {
         </div>
       </div>
 
-      {msg && <div className="text-sm text-gold">{msg}</div>}
-      {error && <div className="text-sm text-red">{error}</div>}
+      {msg && <div className="break-words text-sm text-gold">{msg}</div>}
+      {exportPath && <div className="mt-1 break-all text-xs text-muted">{exportPath}</div>}
+      {error && <div className="break-words text-sm text-red">{error}</div>}
 
       {editing ? (
         /* ============ 详情 / 编辑视图 ============ */

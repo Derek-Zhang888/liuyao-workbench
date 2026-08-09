@@ -101,6 +101,7 @@ describe('PaipanPage v0.2 全链路', () => {
   test('起卦→画板绘制→保存→库中 record 含 doodle/background', async () => {
     await startQigua()
     const svg = openBoard()
+    fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
 
     // 占断：背景 + 吉凶（保存必选）
@@ -127,6 +128,7 @@ describe('PaipanPage v0.2 全链路', () => {
   test('历史回填还原：背景与涂鸦回填，画板默认不自动开启', async () => {
     await startQigua()
     const svg = openBoard()
+    fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
     fireEvent.change(screen.getByPlaceholderText('占问背景（事由、双方关系、环境等）…'), {
       target: { value: '背景文本' },
@@ -157,6 +159,7 @@ describe('PaipanPage v0.2 全链路', () => {
 
     await startQigua()
     const svg = openBoard()
+    fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
     fireEvent.click(screen.getByRole('button', { name: '吉' }))
     fireEvent.click(screen.getByText('保存卦例'))
@@ -184,6 +187,7 @@ describe('PaipanPage v0.2 全链路', () => {
   test('取消画板：涂鸦非空时弹确认，确认后清除涂鸦并关闭', async () => {
     await startQigua()
     const svg = openBoard()
+    fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
     // 取消勾选 → ConfirmDialog
     fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
@@ -335,6 +339,7 @@ describe('PaipanPage v0.10 改进', () => {
       target: { value: '开画板卦' },
     })
     const svg = openBoard()
+    fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
     fireEvent.click(screen.getByText('保存卦例'))
     await screen.findByText(/保存成功/)

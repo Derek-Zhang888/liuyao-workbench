@@ -25,6 +25,9 @@ import { createPortal } from 'react-dom'
 import { doodleUndo, doodleRedo, doodleCommit, doodleClear, doodleErase, arrowHeadSize } from '../engine/doodleSvg.js'
 
 const TOOLS = [
+  // 鼠标（2026-08-09）：恢复默认指针交互，不绘制、允许触摸滚动页面——
+  // 安卓端打开画板后默认即是鼠标，避免手指拖动屏幕误触发画笔
+  { id: 'mouse', label: '鼠标' },
   { id: 'pen', label: '画笔' },
   { id: 'text', label: '文字' },
   { id: 'rect', label: '矩形' },
@@ -160,7 +163,10 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const containerRef = useRef(null)
   const svgRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const [tool, setTool] = useState('pen')
+  // 默认工具 = 鼠标（2026-08-09）：画板开启时不会误画线，安卓端手指拖动页面正常滚动
+  const [tool, setTool] = useState('mouse')
+  // 工具栏收起为悬浮球（2026-08-09）：true 时隐藏工具栏、显示悬浮球，点击展开
+  const [collapsed, setCollapsed] = useState(false)
   const [color, setColor] = useState('#e74c3c')
   // 粗细双槽（文字/其他工具独立记忆）：drawWidth 供画笔等绘制工具共享，textWidth 供文字专用；
   // 当前粗细 = 派生值 strokeWidth（切工具自动切回各自记忆）；sessionStorage 持久化
@@ -208,6 +214,8 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   // 仅在启用时测量一次，随窗口变化不追踪（保持已绘坐标稳定）。
   // 工具栏改 fixed 视口定位后需真实落点：无已保存位置时默认落在画布容器左上角
   // （延续旧「盘面左上角」观感）；用 useLayoutEffect 在绘制前完成，避免先闪现视口 (0,0)。
+  // 2026-08-09 修复「安卓端工具栏消失」：挂载时容器可能在视口外（页面已滚动，rect 为负），
+  // 默认位置钳制在视口内 [8, vw-220]x[8, vh-60]，保证工具栏/悬浮球始终可见可拖。
   useLayoutEffect(() => {
     if (!enabled) return undefined
     const el = containerRef.current
@@ -216,7 +224,12 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height })
     setToolbarPos((prev) => {
       if (prev) return prev
-      return { x: Math.round(rect.left) + 8, y: Math.round(rect.top) + 8 }
+      const vw = window.innerWidth || 800
+      const vh = window.innerHeight || 600
+      return {
+        x: Math.max(8, Math.min(rect.left + 8, vw - 220)),
+        y: Math.max(8, Math.min(rect.top + 8, vh - 60)),
+      }
     })
     return undefined
   }, [enabled])
@@ -246,6 +259,11 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
 
   /** 工具栏当前渲染位置：无保存值（首次挂载未测量完成）时兜底视口 (8,8) */
   const tp = toolbarPos ?? { x: 8, y: 8 }
+
+  /** 覆盖层光标与触摸行为（2026-08-09）：鼠标工具恢复默认（cursor-default + touch-auto 允许页面滚动），
+   *  其他绘制工具锁手势（touch-none）保证绘制流畅 */
+  const cursorCls = tool === 'mouse' ? 'cursor-default' : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
+  const touchCls = tool === 'mouse' ? 'touch-auto' : 'touch-none'
 
   /** pointer 事件 → 画布坐标（viewBox 与容器像素映射，preserveAspectRatio="none" 下按比例换算） */
   const getPoint = (e) => {
@@ -293,26 +311,36 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     if (next) onChange?.(next)
   }
 
-  /** 工具栏拖拽（v0.10 改进建7 #1：pointer capture 拖把手移动位置，松手持久化；
-   *  v0.10 改进建8 #1：放开边界限制，可在页面范围内自由移动定位（允许负坐标/越界）） */
+  /** 工具栏/悬浮球拖拽（v0.10 改进建7 #1：pointer capture 拖把手移动位置，松手持久化；
+   *  2026-08-09 新需求：设立窗口边界，拖拽坐标钳制在视口内 [0, vw-w]x[0, vh-h]，
+   *  防止工具栏/悬浮球拖出窗口后拖不回来（覆盖旧「允许负坐标越界」决策）；
+   *  悬浮球（40px）按自身尺寸钳制，工具栏按工具栏尺寸钳制） */
   const onHandleDown = (e) => {
     e.preventDefault()
     e.stopPropagation()
     const base = toolbarPosRef.current ?? { x: 8, y: 8 } // 首次挂载未完成定位前的兜底
+    // 悬浮球自身带 data-testid="doodle-fab"，工具栏把手没有 → 用是否悬浮球区分钳制尺寸
+    const isFab = e.currentTarget.getAttribute?.('data-testid') === 'doodle-fab'
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
       origX: base.x,
       origY: base.y,
+      isFab,
     }
     try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
   }
   const onHandleMove = (e) => {
     const d = dragRef.current
     if (!d) return
+    const vw = window.innerWidth || 800
+    const vh = window.innerHeight || 600
+    const w = d.isFab ? 44 : toolbarSizeRef.current?.w || 220
+    const h = d.isFab ? 44 : toolbarSizeRef.current?.h || 48
+    // 边界钳制：不能移出窗口（防止拖不回）
     setToolbarPos({
-      x: d.origX + e.clientX - d.startX,
-      y: d.origY + e.clientY - d.startY,
+      x: Math.max(0, Math.min(d.origX + e.clientX - d.startX, vw - w)),
+      y: Math.max(0, Math.min(d.origY + e.clientY - d.startY, vh - h)),
     })
   }
   const onHandleUp = () => {
@@ -362,7 +390,8 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   }
 
   const handlePointerDown = (e) => {
-    if (tool === 'eraser') return // 橡皮擦不启动绘制，交由元素 onClick 删除
+    // 鼠标工具（2026-08-09）：不绘制，恢复默认交互（触摸可滚动页面）；橡皮擦也不启动绘制，交由元素 onClick 删除
+    if (tool === 'mouse' || tool === 'eraser') return
     if (tool === 'text') {
       // 改进建9 #1 修复「点文字工具后没有输入框」：阻止 pointerdown 默认行为。
       // 浏览器默认会在 pointerdown 后将焦点移到事件目标（SVG/body），使刚 autoFocus
@@ -440,7 +469,7 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
         {/* SVG 覆盖层：viewBox = 画布尺寸，preserveAspectRatio="none" 坐标 1:1 */}
         <svg
           ref={svgRef}
-          className={`absolute inset-0 h-full w-full touch-none ${tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'}`}
+          className={`absolute inset-0 h-full w-full ${touchCls} ${cursorCls}`}
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
           onPointerDown={handlePointerDown}
@@ -491,8 +520,26 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
           改进建9 #1：fixed 视口级定位，脱离 PanView overflow-hidden 裁剪 → 可在整个窗口
           页面自由移动；随 DoodleBoard 卸载自动消失
           （玄穹修复：createPortal 到 body，脱离 .card 动画 transform 捕获的 containing
-          block——否则 fixed 定位被盘面卡片接管，页面滚动后工具栏漂移/消失） */}
+          block——否则 fixed 定位被盘面卡片接管，页面滚动后工具栏漂移/消失）
+          2026-08-09：收起为悬浮球（collapsed 时隐藏工具栏，显示可点击展开的悬浮球） */}
       {createPortal(
+        collapsed ? (
+          <button
+            type="button"
+            data-testid="doodle-fab"
+            onClick={() => setCollapsed(false)}
+            title="展开画板工具栏（可拖拽移动悬浮球）"
+            aria-label="展开画板工具栏"
+            className="fixed z-50 flex h-10 w-10 touch-none items-center justify-center rounded-full border border-gold bg-toolbarBg text-base text-gold shadow-lg transition-transform hover:scale-110 active:scale-95"
+            style={{ left: tp.x, top: tp.y }}
+            onPointerDown={onHandleDown}
+            onPointerMove={onHandleMove}
+            onPointerUp={onHandleUp}
+            onPointerCancel={onHandleUp}
+          >
+            ✎
+          </button>
+        ) : (
         <div
           data-testid="doodle-toolbar"
           className="fixed z-50"
@@ -597,8 +644,17 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
           <button type="button" onClick={clearAll} disabled={elements.length === 0} className={toolBtnCls(false)}>
             清空
           </button>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            title="收起为悬浮球（点击悬浮球重新展开）"
+            className="rounded-md border border-gold px-2 py-1 text-xs text-gold transition-colors hover:bg-goldSoft"
+          >
+            收起
+          </button>
         </div>
-        </div>,
+        </div>
+        ),
         document.body,
       )}
     </>

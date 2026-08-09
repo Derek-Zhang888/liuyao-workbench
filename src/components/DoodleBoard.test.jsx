@@ -85,9 +85,10 @@ describe('DoodleBoard 渲染与开关', () => {
 })
 
 describe('DoodleBoard 工具绘制', () => {
-  test('默认画笔：pointer 绘制折线 → onChange 追加 pen 元素', async () => {
+  test('选择画笔工具后：pointer 绘制折线 → onChange 追加 pen 元素（默认工具为鼠标，需先切画笔）', async () => {
     const onChange = vi.fn()
     const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    fireEvent.click(screen.getByText('画笔'))
     const svg = container.querySelector('svg')
     mockSvgRect(svg)
     draw(svg, { from: [10, 20], to: [50, 80] })
@@ -205,6 +206,7 @@ describe('DoodleBoard 工具绘制', () => {
       { type: 'line', x1: 0, y1: 0, x2: 5, y2: 5, color: '#e74c3c', strokeWidth: 4 },
     ] }
     const { container } = render(<DoodleBoard enabled doodle={d} onChange={onChange} />)
+    fireEvent.click(screen.getByText('画笔')) // 默认鼠标工具，绘制前切换画笔
     const svg = container.querySelector('svg')
     mockSvgRect(svg)
     draw(svg, { from: [0, 0], to: [30, 30] }) // 新画 → commit 清空 redo
@@ -426,18 +428,26 @@ describe('DoodleBoard v0.10 改进建8 #1（箭头缩放/文字色/文字橡皮�
     expect(span(s30)).toBeGreaterThan(span(s1))
   })
 
-  test('工具栏自由移动：放开边界限制，可拖到负坐标（v0.10 改进建8 #1）', () => {
+  test('工具栏拖拽边界钳制：不能拖出窗口（2026-08-09 新需求，替代旧放开边界决策）', () => {
     const onChange = vi.fn()
     const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
     const handle = screen.getByTitle('拖动移动工具栏')
-    // 默认 (8,8)；向左上拖拽（增量 -100,-60）→ 允许负坐标，不再 Math.max(0,…) 钳制
+    // 默认 (8,8)；向左上拖拽（增量 -100,-60）→ 应钳制在 0，不再允许负坐标
     firePointer('pointerdown', handle, { x: 20, y: 20 })
     firePointer('pointermove', handle, { x: -80, y: -40 })
     firePointer('pointerup', handle, { x: -80, y: -40 })
     const toolbar = document.querySelector('[data-testid="doodle-toolbar"]')
-    expect(toolbar.style.left).toBe('-92px')
-    expect(toolbar.style.top).toBe('-52px')
-    expect(sessionStorage.getItem('liuyao-doodle-toolbar')).toContain('-92')
+    expect(Number(toolbar.style.left.replace('px', ''))).toBe(0)
+    expect(Number(toolbar.style.top.replace('px', ''))).toBe(0)
+    // 向右下拖超界 → 钳制在视口内（jsdom 1024x768，工具栏按 220x48 估算）
+    const vw = window.innerWidth || 800
+    const vh = window.innerHeight || 600
+    firePointer('pointerdown', handle, { x: 20, y: 20 })
+    firePointer('pointermove', handle, { x: vw + 500, y: vh + 500 })
+    firePointer('pointerup', handle, { x: vw + 500, y: vh + 500 })
+    expect(Number(toolbar.style.left.replace('px', ''))).toBeLessThanOrEqual(vw - 200)
+    expect(Number(toolbar.style.top.replace('px', ''))).toBeLessThanOrEqual(vh - 40)
+    expect(sessionStorage.getItem('liuyao-doodle-toolbar')).not.toContain('-')
   })
 })
 
@@ -655,6 +665,7 @@ describe('DoodleBoard 粗细双槽记忆（文字/绘制独立）', () => {
     const onChange = vi.fn()
     const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
     // 画笔调 8 → 画一条线（width=8，绘制槽）
+    fireEvent.click(screen.getByText('画笔')) // 默认鼠标工具，先切画笔
     fireEvent.change(slider(container), { target: { value: '8' } })
     const svg = container.querySelector('svg')
     mockSvgRect(svg)
@@ -678,5 +689,80 @@ describe('DoodleBoard 粗细双槽记忆（文字/绘制独立）', () => {
     expect(slider(container).value).toBe('9') // 初始画笔 = 绘制槽
     fireEvent.click(screen.getByText('文字'))
     expect(slider(container).value).toBe('25') // 文字槽
+  })
+})
+
+describe('DoodleBoard 2026-08-09（鼠标工具 + 收起悬浮球）', () => {
+  test('默认工具为鼠标：pointer 拖拽不绘制（恢复默认交互，安卓端不误画线）', async () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    // 默认即鼠标工具（无需点击）
+    const svg = container.querySelector('svg')
+    expect(svg.getAttribute('class')).toContain('touch-auto') // 鼠标模式允许页面滚动
+    expect(svg.getAttribute('class')).toContain('cursor-default')
+    mockSvgRect(svg)
+    draw(svg, { from: [10, 20], to: [50, 80] })
+    expect(onChange).not.toHaveBeenCalled() // 无绘制提交
+  })
+
+  test('鼠标工具切换：点「鼠标」后绘制不产生元素', async () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    fireEvent.click(screen.getByText('画笔'))
+    const svg = container.querySelector('svg')
+    expect(svg.getAttribute('class')).toContain('touch-none') // 绘制工具锁手势
+    fireEvent.click(screen.getByText('鼠标'))
+    expect(svg.getAttribute('class')).toContain('touch-auto')
+    mockSvgRect(svg)
+    draw(svg, { from: [10, 20], to: [50, 80] })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  test('收起为悬浮球：点「收起」隐藏工具栏、出现悬浮球；点悬浮球展开', async () => {
+    const onChange = vi.fn()
+    render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    expect(screen.getByTestId('doodle-toolbar')).toBeTruthy()
+    fireEvent.click(screen.getByText('收起'))
+    expect(screen.queryByTestId('doodle-toolbar')).toBeNull() // 工具栏隐藏
+    const fab = screen.getByTestId('doodle-fab')
+    expect(fab).toBeTruthy()
+    expect(fab.className).toContain('fixed') // 悬浮球 fixed 视口定位
+    fireEvent.click(fab)
+    expect(screen.getByTestId('doodle-toolbar')).toBeTruthy() // 重新展开
+    expect(screen.queryByTestId('doodle-fab')).toBeNull()
+  })
+
+  test('工具栏默认位置钳制视口内：容器在视口外（rect 为负）时仍可见（安卓修复）', () => {
+    const onChange = vi.fn()
+    // 容器测量返回视口外负坐标（页面已滚动 / 小屏挂载）——旧逻辑会把工具栏放到屏幕外
+    render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    // useLayoutEffect 默认落点：containerRef.getBoundingClientRect 在 jsdom 为全 0 → 钳制到 (8, 8)
+    const toolbar = document.querySelector('[data-testid="doodle-toolbar"]')
+    expect(Number(toolbar.style.left.replace('px', ''))).toBeGreaterThanOrEqual(8)
+    expect(Number(toolbar.style.top.replace('px', ''))).toBeGreaterThanOrEqual(8)
+    // 且不超过视口（jsdom 视口 1024x768）
+    const vw = window.innerWidth || 800
+    const vh = window.innerHeight || 600
+    expect(Number(toolbar.style.left.replace('px', ''))).toBeLessThanOrEqual(vw - 200)
+    expect(Number(toolbar.style.top.replace('px', ''))).toBeLessThanOrEqual(vh - 50)
+  })
+
+  test('悬浮球可拖拽移动：pointer 拖拽更新位置并持久化，展开时工具栏在新位置', () => {
+    const onChange = vi.fn()
+    render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    fireEvent.click(screen.getByText('收起'))
+    const fab = screen.getByTestId('doodle-fab')
+    const startLeft = Number(fab.style.left.replace('px', ''))
+    const startTop = Number(fab.style.top.replace('px', ''))
+    // 拖拽 +40,+30
+    const evt = new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: startLeft, clientY: startTop })
+    act(() => fab.dispatchEvent(evt))
+    const mv = new window.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: startLeft + 40, clientY: startTop + 30 })
+    act(() => fab.dispatchEvent(mv))
+    const up = new window.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: startLeft + 40, clientY: startTop + 30 })
+    act(() => fab.dispatchEvent(up))
+    expect(Number(fab.style.left.replace('px', ''))).toBe(startLeft + 40)
+    expect(Number(fab.style.top.replace('px', ''))).toBe(startTop + 30)
+    expect(sessionStorage.getItem('liuyao-doodle-toolbar')).toContain(String(startLeft + 40))
   })
 })

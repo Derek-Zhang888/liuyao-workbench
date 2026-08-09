@@ -7,6 +7,7 @@
  * - Web 版（浏览器）：无法自定义路径 → 浏览器下载到系统下载目录，如实提示。
  *
  * 所有返回均携带 message：成功=完整保存路径，取消=已取消保存，失败=原因。
+ * 同时返回 path（完整文件路径）和 dir（所在目录），便于 UI 显示与「打开目录」。
  */
 import { isTauri, writeToDir, getDefaultExportDir, saveFileDialog } from './tauriBridge.js'
 import { getSetting } from '../db/settingsRepo.js'
@@ -24,8 +25,15 @@ function browserDownload(fileName, content, mime) {
   URL.revokeObjectURL(url)
 }
 
+/** 从完整文件路径提取目录（支持 Windows \ 与 POSIX /） */
+function dirOfPath(filePath) {
+  if (!filePath) return ''
+  const i = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'))
+  return i >= 0 ? filePath.slice(0, i) : filePath
+}
+
 /**
- * 保存导出文件。返回 {ok, message, path, usedDefault}
+ * 保存导出文件。返回 {ok, message, dir, path, usedDefault}
  * @param {string} kind  'md' | 'backup' —— 决定用哪个自定义路径设置
  * @param {string} fileName  文件名（含扩展名）
  * @param {string|Uint8Array} content 文件内容（zip 为 Uint8Array）
@@ -43,7 +51,13 @@ export async function saveExport(kind, fileName, content, mime, filters) {
     if (dir) {
       const r = await writeToDir(dir, fileName, content)
       if (r.ok) {
-        return { ok: true, path: r.path, usedDefault: false, message: `已保存到：${r.path}` }
+        return {
+          ok: true,
+          path: r.path,
+          dir: dirOfPath(r.path),
+          usedDefault: false,
+          message: '已导出 md',
+        }
       }
       // 自定义路径写入失败（目录失效/无权限）→ 降级默认目录
       console.warn('custom export path failed, fallback to default:', r.error)
@@ -54,19 +68,33 @@ export async function saveExport(kind, fileName, content, mime, filters) {
     if (defDir) {
       const r = await writeToDir(defDir, fileName, content)
       if (r.ok) {
-        return { ok: true, path: r.path, usedDefault: true, message: `已保存到默认目录：${r.path}` }
+        return {
+          ok: true,
+          path: r.path,
+          dir: defDir,
+          usedDefault: true,
+          message: '已导出 md（默认目录）',
+        }
       }
     }
 
     // 3) 都失败 → 弹系统保存对话框，取消/失败如实提示
     const s = await saveFileDialog(fileName, content, filters)
-    if (s.ok) return { ok: true, path: s.path, usedDefault: false, message: `已保存到：${s.path}` }
+    if (s.ok) {
+      return {
+        ok: true,
+        path: s.path,
+        dir: dirOfPath(s.path),
+        usedDefault: false,
+        message: '已导出 md',
+      }
+    }
     return { ok: false, message: s.message || '保存失败，请检查磁盘空间或路径权限' }
   }
 
   // Web：浏览器下载
   browserDownload(fileName, content, mime)
-  return { ok: true, message: `已保存到浏览器下载文件夹：${fileName}` }
+  return { ok: true, message: '已导出到浏览器下载文件夹' }
 }
 
 /** 常用 md 过滤器 */

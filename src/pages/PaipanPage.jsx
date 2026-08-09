@@ -98,6 +98,7 @@ export default function PaipanPage() {
   const [history, setHistory] = useState([])
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  const [exportPath, setExportPath] = useState('') // v1.0.0：最近一次导出的完整路径（提示分行显示）
 
   // 盘面画板（v0.2 功能 A）：独立 state，绝不挂 pan（用神重排盘 setPan 会冲掉）
   const [doodle, setDoodle] = useState(null)
@@ -340,6 +341,7 @@ export default function PaipanPage() {
   const handleExport = async () => {
     if (!saved) {
       setMsg('请先保存卦例再导出')
+      setExportPath('')
       return
     }
     const md = guashiToMd(saved)
@@ -347,9 +349,11 @@ export default function PaipanPage() {
     const r = await saveExport('md', fileName, md, 'text/markdown;charset=utf-8', MD_FILTERS)
     if (r.ok) {
       setMsg(r.message)
+      setExportPath(r.path || '') // 长路径单独放下一行 break-all 小字
       setError('')
     } else {
       setError(r.message)
+      setExportPath('')
     }
   }
 
@@ -369,6 +373,7 @@ export default function PaipanPage() {
     setDoodleEnabled(false)
     setMsg('')
     setError('')
+    setExportPath('')
     setQiguaResetKey((k) => k + 1) // 起卦区输入一并清空
     try {
       sessionStorage.removeItem(SESSION_KEY)
@@ -524,8 +529,9 @@ export default function PaipanPage() {
             )}
           </div>
 
-          {error && <div className="mt-3 text-sm text-red">{error}</div>}
-          {msg && <div className="mt-3 text-sm text-gold">{msg}</div>}
+          {error && <div className="mt-3 break-words text-sm text-red">{error}</div>}
+          {msg && <div className="mt-3 break-words text-sm text-gold">{msg}</div>}
+          {exportPath && <div className="mt-1 break-all text-xs text-muted">{exportPath}</div>}
         </section>
       )}
 
