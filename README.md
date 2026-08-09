@@ -88,7 +88,7 @@
 你的每一份支持，都是我持续更新、完善功能的动力。
 
 <table>
-<tr><td align="center"><img src="docs/screenshots/alipay-qr.jpg" alt="支付宝收款码" width="200"/><br/><b>支付宝</b></td><td align="center"><img src="docs/screenshots/wechat-qr.png" alt="微信收款码" width="200"/><br/><b>微信</b></td></tr>
+<tr><td align="center"><img src="docs/screenshots/alipay-qr.png" alt="支付宝收款码" width="200"/><br/><b>支付宝</b></td><td align="center"><img src="docs/screenshots/wechat-qr.png" alt="微信收款码" width="200"/><br/><b>微信</b></td></tr>
 </table>
 
 ---
