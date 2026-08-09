@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { HashRouter, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { applyTheme, getTheme } from './utils/theme.js'
 import PaipanPage from './pages/PaipanPage.jsx'
 import GuashiLibPage from './pages/GuashiLibPage.jsx'
 import RecyclePage from './pages/RecyclePage.jsx'
@@ -140,6 +141,28 @@ function Shell() {
     setMoreOpen(false)
   }, [location])
 
+  // 主题跟随系统：系统偏好变化时实时切换（手动选择不受影响）
+  useEffect(() => {
+    if (getTheme() !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => applyTheme('system')
+    mq.addEventListener?.('change', onChange)
+    return () => mq.removeEventListener?.('change', onChange)
+  }, [])
+
+  // 卡片光标光斑：事件委托为所有 .card 维护 --mx/--my（玄穹 spotlight）
+  useEffect(() => {
+    const onMove = (e) => {
+      const card = e.target.closest?.('.card')
+      if (!card) return
+      const r = card.getBoundingClientRect()
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`)
+      card.style.setProperty('--my', `${e.clientY - r.top}px`)
+    }
+    document.addEventListener('pointermove', onMove)
+    return () => document.removeEventListener('pointermove', onMove)
+  }, [])
+
   // 点击「更多」菜单外部任意区域时收起（手机触摸场景）
   useEffect(() => {
     if (!moreOpen) return
@@ -156,8 +179,16 @@ function Shell() {
 
   return (
     <div className="min-h-screen bg-bg text-text">
+      {/* ===== 玄穹背景层：极光漂移 + 细网格线 ===== */}
+      <div className="aurora" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="gridlines" aria-hidden="true" />
+
       {/* ===== 手机版顶部栏（<768px）：品牌 + 主 Tab + 更多菜单 ===== */}
-      <header className="sticky top-0 z-30 border-b border-border bg-panel md:hidden">
+      <header className="glass sticky top-0 z-30 border-b border-border md:hidden">
         <div className="flex items-center justify-between px-4 pb-1 pt-2.5">
           <span className="text-lg font-bold text-gold">六爻工作台</span>
           <NavLink
@@ -208,7 +239,7 @@ function Shell() {
       </header>
 
       {/* ===== 桌面版左侧导航（≥768px）：图标 + 文字纵排 ===== */}
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-52 flex-col border-r border-border bg-panel md:flex">
+      <aside className="glass fixed inset-y-0 left-0 z-20 hidden w-52 flex-col border-r border-border md:flex">
         <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
           <span className="text-lg font-bold text-gold">六爻工作台</span>
         </div>
@@ -267,7 +298,7 @@ function Shell() {
         </main>
 
         <footer className="border-t border-border py-4 text-center text-xs text-muted">
-          六爻工作台 · 暗色专业版
+          六爻工作台 · 玄穹版
         </footer>
       </div>
     </div>

@@ -26,6 +26,9 @@
  *        确定性回退，不取当前日期。
  *   3. 正文按 `## 节名` 提取 断语/应期/备注/反馈（trim 首尾、保留内部换行）；
  *      盘面节内容丢弃：panSnapshot 留 null，导入后由排盘重新生成
+ *      v0.2 新增：涂鸦节（```json 元数据块 → doodle，解析失败置 null）、
+ *      背景节（→ background）、笔记节（→ beizhu 别名；旧 md「备注」节仍可导入）、
+ *      用神（v0.2 功能 I：盘面节「用神：六亲 财」行 → guashi.yongShen，参与重排）
  *
  * 纯函数，无 DOM 依赖。
  */
@@ -35,9 +38,9 @@ import { QIGUA_METHODS } from '../engine/qigua.js';
 const METHOD_ID = Object.fromEntries(QIGUA_METHODS.map((m) => [m.name, m.id]));
 const METHOD_IDS = new Set(QIGUA_METHODS.map((m) => m.id));
 
-/** 正文节名（盘面节解析但不落字段） */
-const SECTIONS = ['盘面', '断语', '应期', '备注', '反馈'];
-const SECTION_KEY = { 断语: 'duanyu', 应期: 'yingqi', 备注: 'beizhu', 反馈: 'fankui' };
+/** 正文节名（盘面节解析但不落字段；v0.2 增 涂鸦/背景/笔记） */
+const SECTIONS = ['盘面', '涂鸦', '背景', '断语', '应期', '备注', '笔记', '反馈'];
+const SECTION_KEY = { 断语: 'duanyu', 应期: 'yingqi', 备注: 'beizhu', 笔记: 'beizhu', 反馈: 'fankui', 背景: 'background' };
 
 /**
  * YAML 标量反序列化：双引号包裹则去引号并反转义（\\ → \，\" → "）；
@@ -211,13 +214,50 @@ function parseQiguaParam(s) {
   return { ok: true, method, params: parseInput(method, input), time };
 }
 
-/** 正文 `## 节名` 提取；未知节名/`##` 行视为正文内容；盘面节丢弃 */
+/**
+ * 正文 `## 节名` 提取；未知节名/`##` 行视为正文内容；盘面节丢弃。
+ * v0.2：新增 涂鸦（提取 ```json 元数据块 → doodle，解析失败置 null）、
+ *       背景（→ background）、笔记（→ beizhu 别名，兼容旧 md「备注」节）、
+ *       用神（v0.2 功能 I：从盘面节「用神：六亲 财 / 用神：地支 寅」行解析 → yongShen，
+ *       与 paipan 的 yongShen 参数同构；旧 md 盘面无此行时为 null）。
+ * @param {string} body front matter 之后的正文
+ * @returns {{duanyu:string, yingqi:string, beizhu:string, fankui:string, background:string, doodle:object|null, yongShen:object|null}}
+ */
 function parseBody(body) {
-  const out = { duanyu: '', yingqi: '', beizhu: '', fankui: '' };
-  let current = null; // 当前节 key（null = 正文前区）
+  const out = { duanyu: '', yingqi: '', beizhu: '', fankui: '', background: '', yongShen: null, createdAt: null, updatedAt: null };
+  let doodle = null; // 涂鸦节 ```json 块解析结果（无节/解析失败为 null）
+  let current = null; // 当前节名（null = 正文前区）
   let buf = [];
   const flush = () => {
-    if (current && SECTION_KEY[current]) out[SECTION_KEY[current]] = buf.join('\n').trim();
+    if (current === '涂鸦') {
+      const m = /```json\s*([\s\S]*?)```/.exec(buf.join('\n'));
+      if (m) {
+        try {
+          const parsed = JSON.parse(m[1].trim());
+          doodle = parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (_) {
+          doodle = null; // 解析失败置 null（不阻断其余字段导入）
+        }
+      }
+    } else if (current === '盘面') {
+      const text = buf.join('\n');
+      // v0.2 功能 I：盘面文本中的「用神：六亲 财 / 用神：地支 寅」行 → yongShen（不落盘面文本）
+      const ym = /^用神：\s*(六亲|地支)\s+([^\s]+)/m.exec(text);
+      if (ym) out.yongShen = { type: ym[1] === '六亲' ? 'liuqin' : 'zhi', value: ym[2] };
+      // v0.10 改进建7 #3：盘面 head 行「创建：YYYY-MM-DD HH:mm　最后编辑：YYYY-MM-DD HH:mm」
+      // → createdAt/updatedAt（'YYYY-MM-DD HH:mm' → 时间戳；缺失保持 null 向后兼容）
+      const toTs = (s) => {
+        if (!s) return null;
+        const d = new Date(String(s).replace(' ', 'T'));
+        return Number.isNaN(d.getTime()) ? null : d.getTime();
+      };
+      const cm = /创建：\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)/.exec(text);
+      const um = /最后编辑：\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)/.exec(text);
+      if (cm) out.createdAt = toTs(cm[1]);
+      if (um) out.updatedAt = toTs(um[1]);
+    } else if (current && SECTION_KEY[current]) {
+      out[SECTION_KEY[current]] = buf.join('\n').trim();
+    }
     buf = [];
   };
   for (const line of body.split('\n')) {
@@ -230,7 +270,7 @@ function parseBody(body) {
     buf.push(line);
   }
   flush();
-  return out;
+  return { ...out, doodle };
 }
 
 /** 时间段是否含时刻（非空且不止日期）：含 ':'（如 HH:mm / ISO 时间部分）视为精确时刻 */
@@ -264,24 +304,28 @@ export function mdToGuashi(mdText) {
       : qp.time;
 
   const bodyFields = parseBody(body);
-  return {
-    ok: true,
-    guashi: {
-      title,
-      date,
-      tags: fields.tags ?? [],
-      status: fields.status && fields.status !== '' ? fields.status : '未反馈',
-      jixiong: fields.jixiong ?? '',
-      jixiongOk: fields.jixiongOk ?? '',
-      yingqiOk: fields.yingqiOk ?? '',
-      fangweiOk: fields.fangweiOk ?? '',
-      method: qp.method,
-      params: qp.params,
-      duanyu: bodyFields.duanyu,
-      yingqi: bodyFields.yingqi,
-      beizhu: bodyFields.beizhu,
-      fankui: bodyFields.fankui,
-      panSnapshot: null, // 盘面文本不存，由 UI 层按 method/params 重新排盘生成
-    },
+  const guashi = {
+    title,
+    date,
+    tags: fields.tags ?? [],
+    status: fields.status && fields.status !== '' ? fields.status : '未反馈',
+    jixiong: fields.jixiong ?? '',
+    jixiongOk: fields.jixiongOk ?? '',
+    yingqiOk: fields.yingqiOk ?? '',
+    fangweiOk: fields.fangweiOk ?? '',
+    method: qp.method,
+    params: qp.params,
+    duanyu: bodyFields.duanyu,
+    yingqi: bodyFields.yingqi,
+    beizhu: bodyFields.beizhu,
+    fankui: bodyFields.fankui,
+    background: bodyFields.background, // v0.2 功能 D：占断背景（旧 md 无此节时默认 ''）
+    doodle: bodyFields.doodle, // v0.2 功能 A：涂鸦节 ```json 元数据还原（无节/失败为 null）
+    yongShen: bodyFields.yongShen ?? null, // v0.2 功能 I：用神（六亲/地支，与 paipan 参数同构；旧 md 无则 null）
+    panSnapshot: null, // 盘面文本不存，由 UI 层按 method/params 重新排盘生成
   };
+  // v0.10 改进建7 #3：创建/最后编辑（盘面 head 行解析；缺失则不落字段，由仓储默认补齐）
+  if (bodyFields.createdAt) guashi.createdAt = bodyFields.createdAt;
+  if (bodyFields.updatedAt) guashi.updatedAt = bodyFields.updatedAt;
+  return { ok: true, guashi };
 }

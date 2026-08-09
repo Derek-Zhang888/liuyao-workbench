@@ -16,6 +16,15 @@ function tagStyle(color) {
   return { borderColor: c, color: c, background: c + '1f' }
 }
 
+/** updatedAt 时间戳 → 'YYYY-MM-DD HH:mm'（v0.10 #2）；非法返回 null */
+function fmtTs(ts) {
+  if (!ts) return null
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return null
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 export default function GuashiCard({
   guashi,
   tagColors = {},
@@ -37,11 +46,16 @@ export default function GuashiCard({
   const bian = guashi.panSnapshot?.bian?.name
   const tags = Array.isArray(guashi.tags) ? guashi.tags : []
   const methodName = METHOD_NAME[guashi.method] ?? guashi.method
+  // v0.10 改进建7 #3：卡片时间分「创建 / 最后编辑」两行分开显示
+  //   创建：createdAt 优先，旧记录无 createdAt 回退起卦时间 date
+  //   最后编辑：updatedAt（旧记录无 updatedAt 显示 —）
+  const createText = (fmtTs(guashi.createdAt) ?? guashi.date) || '—'
+  const updateText = fmtTs(guashi.updatedAt) ?? '—'
 
   return (
     <article
       onClick={() => onOpen?.(guashi.id)}
-      className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-border bg-panel p-4 transition-colors hover:border-gold/60 hover:bg-[#1b212b]"
+      className="group flex cursor-pointer flex-col gap-3 card rounded-xl border border-border bg-panel p-4 transition-colors hover:border-gold/60 hover:bg-panel2"
       title="点击查看/编辑"
     >
       {/* 头部：勾选 + 标题 + 已反馈标识 */}
@@ -52,7 +66,7 @@ export default function GuashiCard({
             checked={selected}
             onClick={(e) => e.stopPropagation()}
             onChange={() => onToggleSelect?.(guashi.id)}
-            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[#d4af37]"
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-gold"
             title={selected ? '取消选择' : '选择'}
           />
         )}
@@ -64,16 +78,17 @@ export default function GuashiCard({
         </h3>
         <span
           className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${
-            fed ? 'border-[#34d399]/60 bg-[#34d399]/10 text-[#34d399]' : 'border-border text-muted'
+            fed ? 'border-ok/60 bg-ok/10 text-ok' : 'border-border text-muted'
           }`}
         >
           {fed ? '✓ 已反馈' : '未反馈'}
         </span>
       </div>
 
-      {/* 信息行：日期 / 方式 / 卦名 */}
+      {/* 信息行：创建 / 最后编辑（v0.10 改进建7 #3）/ 方式 / 卦名 */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-        <span>{guashi.date || '—'}</span>
+        <span title={`创建于 ${createText}`}>创建：{createText}</span>
+        <span title={`最后编辑于 ${updateText}`}>最后编辑：{updateText}</span>
         <span>{methodName}</span>
         {ben && (
           <span className="font-medium text-gold">
@@ -110,7 +125,7 @@ export default function GuashiCard({
             {jx && (
               <span
                 className={`flex items-center gap-0.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                  jx === '吉'
+                  jx === '吉' && !(fed && jxOk === '错')
                     ? 'border-gold/60 bg-goldSoft text-gold'
                     : 'border-red/60 bg-red/10 text-red'
                 }`}

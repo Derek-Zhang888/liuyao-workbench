@@ -1,0 +1,43 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant PP as PaipanPage
+    participant DB as DoodleBoard
+    participant PV as PanView
+    participant PA as paipan(engine)
+    participant PM as panMarkers(engine)
+    participant SV as doodleSvg(engine)
+    participant DBX as guashiRepo(IndexedDB)
+    participant EM as exportMd
+    participant IM as importMd
+
+    Note over U,IM: 起卦 → 画板 → 保存 → 导出
+    U->>PP: 起卦(参数)
+    PP->>PA: paipan({method,params,date,markers:readMarkers()})
+    PA->>PM: computePanMarkers({yao,bian,monthGZ,dayGZ,gongWx,markers})
+    PM-->>PA: pan.markers
+    PA-->>PP: pan(含 guashen/xianggui/chuangzhang/markers)
+    PP->>PV: <PanView pan doodle doodleEnabled/>
+    U->>PP: 勾选画板开关
+    PP->>PV: onDoodleToggle(true)
+    PV->>DB: <DoodleBoard enabled/>
+    U->>DB: 画笔/形状/文字/撤销
+    DB->>DB: 记录矢量元素
+    DB-->>PP: onChange(doodle) 独立 state
+    U->>PP: 保存卦例
+    PP->>DBX: addGuashi({...,panSnapshot:pan,doodle,...duan(含background)})
+    DBX-->>PP: saved
+    U->>PP: 导出 md
+    PP->>EM: guashiToMd(saved)
+    EM->>SV: doodleToDataUri(doodle)
+    EM-->>PP: md(盘面+标记列+香闺床帐 → 涂鸦节 → 背景节 → 断语…)
+
+    Note over U,IM: 导入 md → 重排盘 → 画板还原
+    U->>PP: 导入 md
+    PP->>IM: mdToGuashi(mdText)
+    IM->>IM: parseBody: 涂鸦JSON块/背景/笔记(别名beizhu)
+    IM-->>PP: guashi{method,params,doodle,background,beizhu}
+    PP->>PA: paipan(按 method/params 重排, 读当前 markers)
+    PA-->>PP: 新 pan(标记自动恢复)
+    PP->>PV: PanView 展示 + 涂鸦还原
+    PP->>DB: DoodleBoard 回填 doodle

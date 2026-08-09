@@ -194,7 +194,7 @@ export default function RecyclePage() {
 
       {/* 列表 / 空态 */}
       {records.length === 0 ? (
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-panel/50 p-8 text-center">
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-panelHalf p-8 text-center">
           <p className="text-sm text-muted">
             回收站空空如也，卦例库中删除的卦例会出现在这里
           </p>
@@ -216,7 +216,7 @@ export default function RecyclePage() {
             return (
               <article
                 key={r.id}
-                className="rounded-xl border border-border bg-panel p-4 transition-colors hover:border-gold/60"
+                className="card rounded-xl border border-border bg-panel p-4 transition-colors hover:border-gold/60"
               >
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div className="min-w-0 flex-1">

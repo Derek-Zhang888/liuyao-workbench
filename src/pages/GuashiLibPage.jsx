@@ -5,8 +5,9 @@
  *   - 筛选栏：tag 多选（任一命中，每个 tag 带 × 删除键：只删标签本身，已保存卦例不受影响）
  *     / 反馈状态单选（全部/未反馈/已反馈）/ 关键字搜索（标题/断语）
  *   - 卡片列表（GuashiCard，多选批量操作）：点击打开详情/编辑
- *   - 详情/编辑：复用 PanView/DuanInput/TagEditor；盘面用 panSnapshot 优先，无快照按
- *     method/params 重新排盘；保存用 updateGuashi（按 id 覆盖，不新建记录）
+ *   - 详情/编辑：复用 PanView/DuanInput/TagEditor；v0.2 功能 G 双栏布局（盘面左、占断右，≥lg 两栏）；
+ *     盘面用 panSnapshot 优先，无快照按 method/params 重新排盘；v0.2 功能 I 编辑视图可自定用神
+ *     （YongShenSelector，快照用神回显，变化时重排盘并随保存落库）；保存用 updateGuashi（按 id 覆盖，不新建记录）
  *   - 单条：导出 md（下载）/ 删除（softDelete 进回收站）
  *   - 批量：勾选后「批量导出 md」（逐条下载）/「批量删除」（进回收站）
  *   - 导入：input type=file 多选 .md → mdToGuashi → addGuashi，成功/失败清单提示（含失败原因）；
@@ -15,20 +16,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { QIGUA_METHODS } from '../engine/qigua.js'
+import { isEmptyDoodle } from '../engine/doodleSvg.js'
+import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { addGuashi, getGuashi, listGuashi, softDelete, updateGuashi } from '../db/guashiRepo.js'
 import { addTag, deleteTag, ensurePresetTags, ensureTags, listTags } from '../db/tagsRepo.js'
+import { getSetting } from '../db/settingsRepo.js'
 import { paletteColor } from '../config/presetTags.js'
 import { mdToGuashi } from '../md/importMd.js'
 import PanView from '../components/PanView.jsx'
 import DuanInput from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
+import YongShenSelector from '../components/YongShenSelector.jsx'
 import GuashiCard from '../components/GuashiCard.jsx'
 import ConfirmDialog, { isNoRemind } from '../components/ConfirmDialog.jsx'
 import { downloadGuashiBatch, downloadGuashiMd } from '../utils/exportBatch.js'
 import { resolvePan } from '../utils/panResolve.js'
 
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
-const STATUS_OPTIONS = ['全部', '未反馈', '已反馈']
 
 /** 卦例库筛选/编辑状态的会话级持久化 key（v0.10 建议5 #2：切到统计页再回来保持原状态） */
 const LIB_FILTER_KEY = 'liuyao-lib-filter'
@@ -93,19 +97,49 @@ export default function GuashiLibPage() {
   const fileRef = useRef(null)
 
   // 筛选状态全部走 URL searchParams（v0.10 建议4 #5：统计页跳转带 query；避免同步循环）
-  const statusFilter = searchParams.get('status') || '全部'
+  // v0.10 改进建8 #2：主筛选改为单一互斥组（全部/待占断/未反馈/已反馈），query 用
+  //   status=all|pending|unfed|fed；旧参数（status=未反馈/已反馈、pending=1）兼容过渡解析。
+  const statusMode = (() => {
+    const s = searchParams.get('status')
+    if (s === 'all' || s === 'pending' || s === 'unfed' || s === 'fed') return s
+    if (s === '未反馈') return 'unfed' // 旧 query 兼容
+    if (s === '已反馈') return 'fed' // 旧 query 兼容
+    if (searchParams.get('pending') === '1') return 'pending' // 旧 query 兼容
+    return 'all'
+  })()
+  // 已反馈展开后的六项对错筛选（仅 fed 模式生效）
   const jixiongOkFilter = searchParams.get('jixiongOk') || ''
   const yingqiOkFilter = searchParams.get('yingqiOk') || ''
   const fangweiOkFilter = searchParams.get('fangweiOk') || ''
-  // 未反馈展开的子筛选（v0.10 建议5 #4）：jixiong=吉/凶、yingqi=1（有应期）、fangwei=1（有方位）
+  // 未反馈展开后的子筛选（仅 unfed 模式生效）：jixiong=吉/凶、yingqi=1（有应期）、fangwei=1（有方位）
   const jixiongFilter = searchParams.get('jixiong') || ''
   const yingqiHasFilter = searchParams.get('yingqi') === '1'
   const fangweiHasFilter = searchParams.get('fangwei') === '1'
+  // v0.10 改进建8 #3 排序：URL sort= 参数（created-desc 默认 / created-asc / updated-desc / updated-asc）
+  const sortMode = searchParams.get('sort') || 'created-desc'
+  // 创建时间范围筛选（YYYY-MM-DD，from/to 均含起止当天；URL 参数，统计页跳转可携带）
+  const fromDate = searchParams.get('from') || ''
+  const toDate = searchParams.get('to') || ''
+  // URL 标签参数（v0.2 功能 J）：统计页跳转带 tags= 重复参数（tag 名可含逗号，故不用逗号拼接）
+  const urlTags = useMemo(() => searchParams.getAll('tags').filter(Boolean), [searchParams])
   /** 设置单个 URL 参数（空值移除，保持 URL 干净） */
   const setFilter = (key, value) => {
     const next = new URLSearchParams(searchParams)
     if (value) next.set(key, value)
     else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+  /** v0.10 改进建8 #2：主筛选单选组切换。选中一个自动取消其他（互斥）；
+   *  切换时清空子筛选（对错/子项），避免跨组残留；「全部」清除筛选。 */
+  const setStatusMode = (mode) => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('pending') // 旧参数一并清理
+    if (mode === 'all') {
+      for (const k of ['status', 'jixiongOk', 'yingqiOk', 'fangweiOk', 'jixiong', 'yingqi', 'fangwei']) next.delete(k)
+    } else {
+      next.set('status', mode)
+      for (const k of ['jixiongOk', 'yingqiOk', 'fangweiOk', 'jixiong', 'yingqi', 'fangwei']) next.delete(k)
+    }
     setSearchParams(next, { replace: true })
   }
 
@@ -168,6 +202,66 @@ export default function GuashiLibPage() {
     setEditing(null)
     try { sessionStorage.removeItem(LIB_EDITING_KEY) } catch (_) { /* 静默 */ }
   }
+
+  // —— v0.2 功能 J：URL tags= 参数 → 预选标签（统计页跳转联动；手动点标签不走 URL，不受影响）——
+  useEffect(() => {
+    if (urlTags.length > 0) setSelTags(urlTags)
+  }, [urlTags])
+
+  // —— v0.2 功能 I：编辑视图自定用神（编辑中卦例变化时重置）——
+  // 初始回显：快照烘焙的用神优先，顶层字段兜底（md 导入卦例 panSnapshot 恒 null，用神从 md 解析）
+  const [editYongShen, setEditYongShen] = useState(null)
+  useEffect(() => {
+    const rec = editing
+    setEditYongShen(rec ? (rec.panSnapshot?.yongShen ?? rec.yongShen ?? null) : null)
+    // 仅在切换卦例时重置（editing 内容随输入变化，id 不变）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.id])
+
+  // —— v0.10 #1/#16：编辑视图盘面画板（独立 state，不挂 pan；随卦例切换重置）——
+  // v0.10 改进建7 #1：画板开启状态会话持久化（切页面后返回保留；与排盘页 state key 独立）
+  const DOODLE_ON_KEY = 'liuyao-doodle-on'
+  const [editDoodle, setEditDoodle] = useState(null)
+  const [editDoodleEnabled, setEditDoodleEnabled] = useState(false)
+  useEffect(() => {
+    const rec = editing
+    setEditDoodle(rec?.doodle ?? null) // md 导入还原的涂鸦在此回填显示（可编辑）
+    // 编辑页画板默认联动开启：record.doodleOn ?? (doodle 非空)；
+    // 会话内开启状态优先（切页面后返回保留）
+    let on = false
+    try {
+      const saved = sessionStorage.getItem(DOODLE_ON_KEY)
+      if (saved === '1') on = true
+      else if (saved === '0') on = false
+      else on = !!(rec?.doodleOn ?? (rec?.doodle && !isEmptyDoodle(rec.doodle)))
+    } catch (_) {
+      on = !!(rec?.doodleOn ?? (rec?.doodle && !isEmptyDoodle(rec.doodle)))
+    }
+    setEditDoodleEnabled(on)
+    // 仅在切换卦例时重置
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.id])
+  /** 编辑视图画板开关：同步 state + sessionStorage（独立于排盘页） */
+  const handleEditDoodleToggle = (v) => {
+    setEditDoodleEnabled(v)
+    try { sessionStorage.setItem(DOODLE_ON_KEY, v ? '1' : '0') } catch (_) { /* 静默 */ }
+  }
+
+  // —— v0.10 #16：导入/重排盘时携带当前盘面标记设置（markers 随设置重算，修复导入丢失增强显示）——
+  const [markerSettings, setMarkerSettings] = useState(null)
+  useEffect(() => {
+    ;(async () => {
+      const m = {}
+      for (const k of MARKER_KEYS) {
+        try {
+          m[k] = !!(await getSetting(k))
+        } catch (_) {
+          m[k] = false
+        }
+      }
+      setMarkerSettings(m)
+    })()
+  }, [])
 
   const tagColors = useMemo(
     () => Object.fromEntries(allTags.map((t) => [t.name, t.color])),
@@ -234,34 +328,61 @@ export default function GuashiLibPage() {
     if (tag) doDeleteTag(tag)
   }
 
-  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4）；
- *  - tag 多选为「任一命中」；命中标签数越多的卦例排越前
- *  - status=已反馈：jixiongOk/yingqiOk/fangweiOk 六项对错筛选
- *  - status=未反馈：jixiong(吉/凶)/yingqi(有应期)/fangwei(有方位) 四项子筛选*/
+  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4 + 改进建8 #2 #3）；
+ *  - tag 多选为「任一命中」；用户排序优先，标签命中数作为次级排序
+ *  - v0.10 改进建8 #2 新口径互斥单组：
+ *      待占断 = jixiong 未选（'' 或缺失）；未反馈 = jixiong 非空 且 status 未反馈；
+ *      已反馈 = status 已反馈；三者互斥（选中一个自动取消其他）
+ *  - fed 模式：jixiongOk/yingqiOk/fangweiOk 六项对错筛选
+ *  - unfed 模式：jixiong(吉/凶)/yingqi(有应期)/fangwei(有方位) 四项子筛选
+ *  - v0.10 改进建8 #3 排序：sort=created-desc/asc、updated-desc/asc（默认创建时间新→旧）；
+ *    时间戳缺失回退（创建回退 id、最后编辑回退 createdAt），保证确定有序 */
   const filtered = useMemo(() => {
     const list = records.filter((r) => {
       if (selTags.length > 0 && !selTags.some((t) => (r.tags ?? []).includes(t))) return false
-      if (statusFilter !== '全部' && r.status !== statusFilter) return false
-      if (statusFilter === '已反馈') {
+      if (statusMode === 'pending' && (r.jixiong ?? '') !== '') return false // 待占断 = jixiong 未选
+      if (statusMode === 'unfed' && ((r.jixiong ?? '') === '' || r.status !== '未反馈')) return false // 未反馈 = jixiong 非空 且 status 未反馈
+      if (statusMode === 'fed' && r.status !== '已反馈') return false // 已反馈 = status 已反馈
+      if (statusMode === 'fed') {
         if (jixiongOkFilter && r.jixiongOk !== jixiongOkFilter) return false
         if (yingqiOkFilter && r.yingqiOk !== yingqiOkFilter) return false
         if (fangweiOkFilter && r.fangweiOk !== fangweiOkFilter) return false
       }
-      if (statusFilter === '未反馈') {
+      if (statusMode === 'unfed') {
         if (jixiongFilter && r.jixiong !== jixiongFilter) return false
         if (yingqiHasFilter && !(r.yingqi ?? '').trim()) return false
         if (fangweiHasFilter && !(r.fangwei ?? '').trim()) return false
       }
       const kw = keyword.trim()
       if (kw && !(r.title ?? '').includes(kw) && !(r.duanyu ?? '').includes(kw)) return false
+      // 创建时间范围（from 当天 00:00 起、to 当天 23:59:59.999 止，含起止当天）；
+      // createdAt 缺失时回退 id（与排序口径一致，保证确定有序）
+      const createTs = typeof r.createdAt === 'number' && Number.isFinite(r.createdAt) ? r.createdAt : (r.id ?? 0)
+      if (fromDate) {
+        const fromMs = new Date(`${fromDate}T00:00:00`).getTime()
+        if (Number.isFinite(fromMs) && createTs < fromMs) return false
+      }
+      if (toDate) {
+        const toMs = new Date(`${toDate}T23:59:59.999`).getTime()
+        if (Number.isFinite(toMs) && createTs > toMs) return false
+      }
       return true
     })
+    // 排序（v0.10 改进建8 #3）：created 回退 createdAt ?? id，updated 回退 updatedAt ?? createdAt
+    const tsOf = (r, key) => {
+      const v = key === 'created' ? (r.createdAt ?? r.id ?? 0) : (r.updatedAt ?? r.createdAt ?? 0)
+      return typeof v === 'number' && Number.isFinite(v) ? v : 0
+    }
+    // desc（新→旧）= 时间戳大在前（dir=1）；asc（旧→新）= 时间戳小在前（dir=-1）
+    const dir = sortMode.endsWith('-asc') ? -1 : 1
+    const sortKey = sortMode.startsWith('created') ? 'created' : 'updated'
+    const cmp = (a, b) => (tsOf(b, sortKey) - tsOf(a, sortKey)) * dir || ((b.id ?? 0) - (a.id ?? 0)) * dir
     if (selTags.length > 0) {
       const hitCount = (r) => (r.tags ?? []).filter((t) => selTags.includes(t)).length
-      return [...list].sort((a, b) => hitCount(b) - hitCount(a))
+      return [...list].sort((a, b) => cmp(a, b) || hitCount(b) - hitCount(a))
     }
-    return list
-  }, [records, selTags, statusFilter, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter])
+    return [...list].sort(cmp)
+  }, [records, selTags, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter, sortMode, fromDate, toDate])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -329,9 +450,16 @@ export default function GuashiLibPage() {
     }
     try {
       setError('')
+      // v0.2 功能 I：用神变化时重排后的盘面一并落库（panRes 与展示一致；用神未变化时 panRes.pan 即原快照）
+      // v0.10 #1：编辑视图涂鸦存/改 record.doodle（空涂鸦不落库）
+      // v0.10 改进建7 #1：编辑视图保存画板开启状态（record.doodleOn）
       const updated = await updateGuashi({
         ...rec,
+        panSnapshot: panRes?.ok ? panRes.pan : rec.panSnapshot,
+        yongShen: editYongShen ?? null,
         title: (rec.title ?? '').trim() || '未命名卦例',
+        doodle: editDoodle && !isEmptyDoodle(editDoodle) ? editDoodle : null,
+        doodleOn: !!editDoodleEnabled,
       })
       setEditing(updated)
       setMsg('已保存修改')
@@ -392,7 +520,12 @@ export default function GuashiLibPage() {
     setSearchParams({}, { replace: true })
   }
 
-  const panRes = editing ? resolvePan(editing) : null
+  // 盘面解析（v0.2 功能 I）：快照优先；编辑视图中自定用神变化时按 method/params 重排
+  // v0.10 #16：重排时携带当前盘面标记设置（markers 随设置重算，修复导入丢失增强显示）
+  const panRes = useMemo(
+    () => (editing ? resolvePan(editing, { yongShen: editYongShen, markers: markerSettings }) : null),
+    [editing, editYongShen, markerSettings],
+  )
 
   return (
     <div className="space-y-5">
@@ -459,99 +592,126 @@ export default function GuashiLibPage() {
             </div>
           </div>
 
-          {/* 盘面：快照优先，无快照按参数重排 */}
-          {panRes?.ok ? (
-            <PanView pan={panRes.pan} />
-          ) : (
-            panRes && (
-              <div className="rounded-xl border border-red/40 bg-red/10 p-3 text-sm text-red">
-                盘面加载失败：{panRes.error}（该卦例无盘面快照，且无法按起卦参数重新排盘）
+          {/* v0.2 功能 G：编辑视图双栏——盘面左、占断右；≥lg 两栏，<lg 单列堆叠 */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            {/* 左：盘面 + 自定用神（v0.2 功能 I；v0.10 编辑视图画板开关） */}
+            <div className="space-y-4">
+              {panRes?.ok ? (
+                <PanView
+                  pan={panRes.pan}
+                  doodle={editDoodle}
+                  doodleEnabled={editDoodleEnabled}
+                  onDoodleChange={setEditDoodle}
+                  onDoodleToggle={handleEditDoodleToggle}
+                />
+              ) : (
+                panRes && (
+                  <div className="rounded-xl border border-red/40 bg-red/10 p-3 text-sm text-red">
+                    盘面加载失败：{panRes.error}（该卦例无盘面快照，且无法按起卦参数重新排盘）
+                  </div>
+                )
+              )}
+              <YongShenSelector value={editYongShen} onChange={setEditYongShen} />
+            </div>
+
+            {/* 右：占断编辑 */}
+            <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5">
+              <h3 className="mb-4 text-base font-medium text-gold">占断</h3>
+
+              <div className="mb-4">
+                <div className="mb-1.5 text-sm text-muted">占问内容（卦题）</div>
+                <input
+                  value={editing.title ?? ''}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  placeholder="占问内容"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text outline-none transition-colors focus:border-gold"
+                />
               </div>
-            )
-          )}
 
-          {/* 占断编辑 */}
-          <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
-            <h3 className="mb-4 text-base font-medium text-gold">占断</h3>
-
-            <div className="mb-4">
-              <div className="mb-1.5 text-sm text-muted">占问内容（卦题）</div>
-              <input
-                value={editing.title ?? ''}
-                onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-                placeholder="占问内容"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text outline-none transition-colors focus:border-gold"
+              <DuanInput
+                value={duanOf(editing)}
+                onChange={(d) => setEditing({ ...editing, ...d })}
               />
-            </div>
 
-            <DuanInput
-              value={duanOf(editing)}
-              onChange={(d) => setEditing({ ...editing, ...d })}
-            />
+              <div className="mt-4">
+                <div className="mb-1.5 text-sm text-muted">标签</div>
+                <TagEditor
+                  selected={Array.isArray(editing.tags) ? editing.tags : []}
+                  onChange={(tags) => setEditing({ ...editing, tags })}
+                />
+              </div>
 
-            <div className="mt-4">
-              <div className="mb-1.5 text-sm text-muted">标签</div>
-              <TagEditor
-                selected={Array.isArray(editing.tags) ? editing.tags : []}
-                onChange={(tags) => setEditing({ ...editing, tags })}
-              />
-            </div>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  className="rounded-md bg-gold px-5 py-2 text-sm font-medium text-black transition-colors hover:opacity-90"
+                >
+                  保存修改
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportOne(editing)}
+                  className="rounded-md border border-gold px-5 py-2 text-sm text-gold transition-colors hover:bg-goldSoft"
+                >
+                  导出 md
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOne(editing)}
+                  className="rounded-md border border-red/60 px-5 py-2 text-sm text-red transition-colors hover:bg-red/10"
+                >
+                  删除
+                </button>
+              </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleSaveEdit}
-                className="rounded-md bg-gold px-5 py-2 text-sm font-medium text-black transition-colors hover:opacity-90"
-              >
-                保存修改
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExportOne(editing)}
-                className="rounded-md border border-gold px-5 py-2 text-sm text-gold transition-colors hover:bg-goldSoft"
-              >
-                导出 md
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteOne(editing)}
-                className="rounded-md border border-red/60 px-5 py-2 text-sm text-red transition-colors hover:bg-red/10"
-              >
-                删除
-              </button>
-            </div>
-
-            {error && <div className="mt-3 text-sm text-red">{error}</div>}
-            {msg && <div className="mt-3 text-sm text-gold">{msg}</div>}
-          </section>
+              {error && <div className="mt-3 text-sm text-red">{error}</div>}
+              {msg && <div className="mt-3 text-sm text-gold">{msg}</div>}
+            </section>
+          </div>
         </section>
       ) : (
         /* ============ 列表视图 ============ */
         <>
           {/* 筛选栏（v0.10 建议5 #5：筛选行在标签行上面） */}
-          <section className="space-y-3 rounded-xl border border-border bg-panel p-4">
+          <section className="space-y-3 card rounded-xl border border-border bg-panel p-4">
             {/* 筛选行：状态 + 已反馈六项对错 / 未反馈四项子筛选 + 搜索 */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-10 shrink-0 text-sm text-muted">筛选</span>
-              {STATUS_OPTIONS.map((s) => {
-                const on = statusFilter === s
+              {/* 主筛选单选组（v0.10 改进建8 #2：全部/待占断/未反馈/已反馈 互斥，选中一个自动取消其他） */}
+              {[
+                { mode: 'all', label: '全部' },
+                { mode: 'pending', label: '待占断' },
+                { mode: 'unfed', label: '未反馈' },
+                { mode: 'fed', label: '已反馈' },
+              ].map(({ mode, label }) => {
+                const on = statusMode === mode
                 return (
                   <button
-                    key={s}
+                    key={mode}
                     type="button"
-                    onClick={() => setFilter('status', s === '全部' ? '' : s)}
+                    onClick={() => setStatusMode(mode)}
                     className={`rounded-md border px-3 py-1 text-sm transition-colors ${
                       on
                         ? 'border-gold bg-goldSoft text-gold'
                         : 'border-border text-muted hover:text-text'
                     }`}
+                    title={
+                      mode === 'pending'
+                        ? '只显示未选吉凶（待占断）的卦例'
+                        : mode === 'unfed'
+                          ? '只显示已选吉凶且未反馈（已断未反馈）的卦例'
+                          : mode === 'fed'
+                            ? '只显示已反馈的卦例'
+                            : '清除筛选'
+                    }
                   >
-                    {s}
+                    {label}
                   </button>
                 )
               })}
               {/* 已反馈展开后的六项对错筛选（v0.10 建议4 #8） */}
-              {statusFilter === '已反馈' && (
+              {statusMode === 'fed' && (
                 <>
                   <span className="ml-2 w-10 shrink-0 text-xs text-muted">对错</span>
                   {[
@@ -583,7 +743,7 @@ export default function GuashiLibPage() {
                 </>
               )}
               {/* 未反馈展开后的四项子筛选：吉/凶/应期/方位（v0.10 建议5 #4） */}
-              {statusFilter === '未反馈' && (
+              {statusMode === 'unfed' && (
                 <>
                   <span className="ml-2 w-10 shrink-0 text-xs text-muted">子项</span>
                   {[
@@ -611,6 +771,41 @@ export default function GuashiLibPage() {
                     )
                   })}
                 </>
+              )}
+              {/* 创建时间范围（新历 起止日期，含当天；URL from=/to=，统计页跳转可携带） */}
+              <span className="ml-2 w-10 shrink-0 text-xs text-muted">时间</span>
+              <input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFilter('from', e.target.value)}
+                title="创建时间范围：开始日期"
+                className="rounded-md border border-border bg-bg px-2 py-1 text-xs text-text outline-none transition-colors focus:border-gold"
+              />
+              <span className="text-xs text-muted">至</span>
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setFilter('to', e.target.value)}
+                title="创建时间范围：结束日期"
+                className="rounded-md border border-border bg-bg px-2 py-1 text-xs text-text outline-none transition-colors focus:border-gold"
+              />
+              {(fromDate || toDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 一次调用同时删 from/to（两次 setFilter 会基于同一旧闭包，后一次把前一次覆盖回去）
+                    const next = new URLSearchParams(searchParams)
+                    next.delete('from')
+                    next.delete('to')
+                    setSearchParams(next, { replace: true })
+                  }}
+                  className="rounded-md border border-border px-2 py-0.5 text-xs text-muted transition-colors hover:text-text"
+                  title="清除时间筛选"
+                >
+                  清除时间
+                </button>
               )}
               <input
                 value={keyword}
@@ -678,6 +873,20 @@ export default function GuashiLibPage() {
                 共 {filtered.length} 条，已选 {selectedIds.length} 条
               </span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
+                {/* 排序选择器（v0.10 改进建8 #3）：创建/最后编辑 新→旧/旧→新，URL sort= 持久 */}
+                <label className="flex items-center gap-1.5 text-xs text-muted">
+                  排序
+                  <select
+                    value={sortMode}
+                    onChange={(e) => setFilter('sort', e.target.value)}
+                    className="rounded-md border border-border bg-bg px-2 py-1 text-sm text-text outline-none focus:border-gold"
+                  >
+                    <option value="created-desc">创建时间 新→旧</option>
+                    <option value="created-asc">创建时间 旧→新</option>
+                    <option value="updated-desc">最后编辑 新→旧</option>
+                    <option value="updated-asc">最后编辑 旧→新</option>
+                  </select>
+                </label>
                 <button
                   type="button"
                   onClick={handleBatchExport}
@@ -708,7 +917,7 @@ export default function GuashiLibPage() {
 
           {/* 卡片列表 / 空态 */}
           {filtered.length === 0 ? (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-panel/50 p-8 text-center">
+            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-panelHalf p-8 text-center">
               <p className="text-sm text-muted">
                 {records.length === 0
                   ? '卦例库空空如也，先去排盘页起一卦并保存吧'
@@ -752,7 +961,7 @@ export default function GuashiLibPage() {
 
           {/* 导入结果清单 */}
           {importResult && (
-            <section className="rounded-xl border border-border bg-panel p-4 text-sm">
+            <section className="card rounded-xl border border-border bg-panel p-4 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-gold">
                   导入完成：成功 {importResult.ok} 条，失败 {importResult.fail.length} 条

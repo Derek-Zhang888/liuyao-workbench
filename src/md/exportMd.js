@@ -25,9 +25,44 @@
  * 纯函数，无 DOM 依赖。
  */
 import { QIGUA_METHODS } from '../engine/qigua.js';
+import { doodleToDataUri } from '../engine/doodleSvg.js';
+import {
+  markerBadgesFor,
+  markerBadgesForBian,
+  markerBadgesForFushen,
+  wangshuaiAt,
+} from '../engine/panMarkers.js';
 
 /** 六亲单字 → 全称（表格可读性） */
 const LIUQIN_FULL = { 父: '父母', 兄: '兄弟', 官: '官鬼', 财: '妻财', 孙: '子孙' };
+
+/** 解析 '父戌土' → {liuqin, zhi, wuxing}（与 PanView/paipan 内部解析规则一致） */
+function parseLiqin(s) {
+  const m = /^([父兄官财孙])([子丑寅卯辰巳午未申酉戌亥])([木火土金水])$/.exec(s ?? '');
+  return m ? { liuqin: m[1], zhi: m[2], wuxing: m[3] } : null;
+}
+
+/** 显示宽度：中文字符（含全角标点、●、（）等）按 2 个半角宽，ASCII/数字按 1 */
+function dispWidth(s) {
+  return [...String(s ?? '')].reduce((w, ch) => w + (ch.codePointAt(0) > 0xff ? 2 : 1), 0);
+}
+
+/** 单元格右侧补半角空格至显示宽度 width；内容超宽不截断（正常数据不会超） */
+function padCell(s, width) {
+  const str = String(s ?? '');
+  const pad = width - dispWidth(str);
+  return pad > 0 ? str + ' '.repeat(pad) : str;
+}
+
+/** 组装等宽表格行：`| 内容 | 内容 | ... |`（每列按 widths 显示宽度对齐） */
+function renderRow(cells, widths) {
+  return `| ${cells.map((c, i) => padCell(c, widths[i])).join(' | ')} |`;
+}
+
+/** 分隔线：`|` + `-`×(列宽+2) + `|`（每个单元格区域 `-` 数与数据行「| 内容 空格」等宽） */
+function renderSep(widths) {
+  return `|${widths.map((w) => '-'.repeat(w + 2)).join('|')}|`;
+}
 
 /** QIGUA_METHODS id → 中文名 */
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]));
@@ -67,6 +102,15 @@ function timeToStr(v) {
   }
   if (typeof v === 'string' && v) return v;
   return '';
+}
+
+/** 时间戳 → 'YYYY-MM-DD HH:mm'；非法/缺失返回 ''（v0.10 改进建7 #3 创建/最后编辑） */
+function fmtTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /** YAML 1.1 布尔/空值关键字（大小写不敏感），裸输出会被解析成布尔/None */
@@ -128,8 +172,11 @@ const FM_GUIDE = [
   '# 三、盘面读法（给人，也给其他 AI）：爻画 1 = 阳爻（实线 —），2 = 阴爻（断线 - -）；',
   '#   爻画后的 ● 表示该爻为动爻，动爻按 1↔2 翻转后即得变卦。',
   '#   起卦参数中的 6 位数字同为爻画，自左至右依次是初爻、二爻、三爻、四爻、五爻、上爻；',
-  '#   下方盘面表格第 1 行为初爻，最后 1 行为上爻。',
+  '#   下方盘面表格第 1 行为上爻，最后 1 行为初爻。',
+  '#   变卦列展示本卦各爻动变后的六亲/地支/五行/爻画，无变卦（无动爻）的卦该列为空。',
   '#   世应列：「世」为求测人自己，「应」为对方或所测之事。',
+  '#   本卦标记列展示本卦爻标记（旺衰、月破/月合/日破/日合、化进/退、反伏吟），无标记留空；',
+  '#   表尾标记列展示变卦标记（变爻旺衰、回头生克冲合、变爻破合）与伏神标记，无标记留空。',
 ].join('\n');
 
 /** 起卦参数 YAML 安全：空串或以 | 开头（块标量指示符）时输出 "" */
@@ -161,32 +208,214 @@ function buildQiguaParam(g) {
   return `${name}|${input}|${time}`;
 }
 
-/** panSnapshot（paipan 输出）→ 人类可读盘面文本 */
-function renderPan(pan) {
+/** 神煞项 → md 文本：统一「名(值)」格式（日干系/日支系/月支系均单基准） */
+function renderShenshaItem(s) {
+  return `${s.name}(${s.zhi ?? s.gan ?? ''})`;
+}
+
+/** 爻位名（初爻→上爻），与盘面 PanView 一致 */
+const LINE_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻'];
+
+/**
+ * 地支分析（功能一）→ md 小节文本；da 为空（旧快照未计算）返回 ''。
+ * 与 PanView 折叠区同口径的 8 小节：本变/月建/日辰/动爻/三合/入墓/真空/用神；
+ * 条目统一「爻位 文本」（三合等无爻位的条目直接输出文本）；全空输出提示文案。
+ */
+function renderDizhiAnalysis(da) {
+  if (!da) return '';
+  const sections = [
+    ['本变', da.benBian],
+    ['月建', da.yueJian],
+    ['日辰', da.riChen],
+    ['动爻', da.dongYao],
+    ['三合', da.sanHe],
+    ['入墓', da.ruMu],
+    ['真空', da.zhenKong],
+    ['用神', da.yongShenJi],
+  ];
+  const lines = [];
+  for (const [label, items] of sections) {
+    if (!items || items.length === 0) continue;
+    const parts = items.map((e) => {
+      const pre = e.yaoIndex != null ? LINE_NAMES[e.yaoIndex] : '';
+      const text = e.text ?? '真空'; // zhenKong 条目仅 {yaoIndex}
+      return pre ? `${pre} ${text}` : text;
+    });
+    lines.push(`**${label}**：${parts.join('、')}`);
+  }
+  if (lines.length === 0) return '本卦无特殊地支关系（可选用神查看元神/忌神判定）。';
+  return lines.join('\n');
+}
+
+/** panSnapshot（paipan 输出）→ 人类可读盘面文本；rec 为卦例记录（可选，用于创建/最后编辑时间） */
+function renderPan(pan, rec) {
   if (!pan || !pan.ben) return '（无盘面数据）';
   const ben = pan.ben;
   const bian = pan.bian;
+  // 创建/最后编辑（v0.10 改进建7 #3）：从卦例记录 createdAt/updatedAt 取（旧快照/旧记录缺失省略）
+  const created = fmtTs(rec?.createdAt) || (rec?.date ?? '');
+  const updated = fmtTs(rec?.updatedAt);
+  // 真太阳时校准标注（新快照含 trueSolarInfo，旧快照无此字段时保持原样）
+  const ts = pan.trueSolarInfo;
+  const tsNote = ts
+    ? `  真太阳时：${ts.trueSolarTime} ${ts.trueSolarShichen}${ts.cityName ? `（${ts.cityName}）` : ''}${
+        ts.refDayGZ !== pan.dayGZ ? `；若按真太阳时 23:00 换日，日建则为 ${ts.refDayGZ}` : ''
+      }`
+    : '';
   const head = [
     `本卦：${ben.name}（${ben.gong}宫）`,
     bian ? `变卦：${bian.name}（${bian.gong}宫）` : '变卦：（无变卦）',
     // v0.10 建议4 #9：补太岁干支 + 月建天干；删除原「旺衰」列
-    `太岁：${pan.yearGZ ?? ''}  月建：${pan.monthGZ ?? ''}  日建：${pan.dayGZ ?? ''}  时建：${pan.hourGZ ?? ''}  旬空：${(pan.xunkong ?? []).join('')}`,
-  ].join('\n');
-  const header = '| 六神 | 六亲 | 地支 | 五行 | 爻画 | 世应 |';
-  const sep = '|------|------|------|------|------|------|';
-  const rows = (pan.yao ?? []).map((y, i) => {
+    `太岁：${pan.yearGZ ?? ''}  月建：${pan.monthGZ ?? ''}  日建：${pan.dayGZ ?? ''}  时建：${pan.hourGZ ?? ''}  旬空：${(pan.xunkong ?? []).join('')}${tsNote}`,
+    // v0.10 改进建7 #3：创建/最后编辑（与卦例库卡片口径一致；均缺失时省略）
+    created || updated ? `创建：${created}　最后编辑：${updated}` : '',
+    // 卦级神煞行：跟随年月日干支（旧快照无 shenshaList 时省略此行）
+    (pan.shenshaList ?? []).length
+      ? `神煞：${pan.shenshaList.map(renderShenshaItem).join(' ')}`
+      : '',
+    // 自定用神（功能二）：旧快照无 yongShen 时省略此行
+    pan.yongShen
+      ? `用神：${pan.yongShen.type === 'zhi' ? '地支' : '六亲'} ${pan.yongShen.value}`
+      : '',
+    // 卦身/香闺/床帐（v0.2 功能 C）：卦身精确推演优先，旧快照回退旧值；无结果省略。
+    // v0.10 香闺/床帐为数组（只显示地支，全匹配），旧快照对象形态向后兼容
+    (() => {
+      const gs = pan.guashenPrecise ?? pan.guashen ?? '';
+      const parts = [
+        gs ? `卦身：${gs}` : '',
+        bedroomText('香闺', pan.xianggui),
+        bedroomText('床帐', pan.chuangzhang),
+      ].filter((l) => l !== '');
+      return parts.join('   ');
+    })(),
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
+  // 天干列（功能三，v0.10 改进建7 #5）：nagan 开启（快照 yao 带 gan）时本卦加天干列，
+  // 变卦同步加变卦天干列（按变卦上下经卦纳甲，旧快照 bian 无 gan 时留空兼容）。
+  // v0.10 改进建8 #5：新增「本卦标记」列（世应后）与表尾「标记」列——列顺序固定为
+  //   六神|爻位|六亲|[天干]|地支|五行|爻画|世应|本卦标记|变卦六亲|变卦地支|变卦五行|变卦爻画|标记
+  // 本卦标记 = 本卦爻标记（旺衰 + 月破/日破/月合/日合/进退/反伏吟）；
+  // 表尾标记 = 变卦标记（变爻旺衰 + 回头生克冲合 + 变爻破合）+ 伏神标记。
+  // 两列恒存在（无 markers 时留空），列数稳定：无纳干 13 列 / 纳干 15 列。
+  const hasGan = (pan.yao ?? []).some((y) => y.gan != null);
+  const markers = pan.markers ?? null;
+  const yao = pan.yao ?? [];
+  const liushen = pan.liushen ?? [];
+
+  const headerCells = hasGan
+    ? ['六神', '爻位', '六亲', '天干', '地支', '五行', '爻画', '世应', '本卦标记', '变卦六亲', '变卦天干', '变卦地支', '变卦五行', '变卦爻画', '标记']
+    : ['六神', '爻位', '六亲', '地支', '五行', '爻画', '世应', '本卦标记', '变卦六亲', '变卦地支', '变卦五行', '变卦爻画', '标记'];
+
+/** 香闺/床帐 → md 文本（v0.10 改进建7 #4 新结构数组 [{zhi}] 只显示地支、空格分隔；
+ * 旧快照对象 {zhi,wuxing} 兼容；空/缺省省略） */
+function bedroomText(name, v) {
+  if (!v) return '';
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '';
+    return `${name}：${v.map((x) => x.zhi ?? '').join(' ')}`;
+  }
+  return `${name}：${v.zhi ?? ''}${v.wuxing ?? ''}`;
+}
+
+/** 单爻「本卦标记」列文本（v0.10 改进建8 #5）：本卦旺衰 + 本卦角标（月破/日破/月合/日合/进退/反伏吟），
+ *  标记间空格隔开。无 markers 返回 ''（留空）。月破/日破/月合/日合写全（字形即 '月破'/'日破'/'月合'/'日合'）。 */
+const benMarkerCell = (i) => {
+  if (!markers) return '';
+  const glyphs = [];
+  const ws = wangshuaiAt(markers, i, 'ben');
+  if (ws && ws.ws) glyphs.push(ws.ws);
+  glyphs.push(...markerBadgesFor(markers, i).map((b) => b.g));
+  return glyphs.join(' ');
+};
+
+/** 单爻表尾「标记」列文本（v0.10 改进建8 #5）：变爻旺衰 + 变爻角标（回头生克冲合、变爻月破/日破/月合/日合），
+ *  标记间空格隔开。无 markers 返回 ''。回头箭头与 UI 一致指向左。 */
+const bianMarkerCell = (i) => {
+  if (!markers) return '';
+  const glyphs = [];
+  const bws = wangshuaiAt(markers, i, 'bian');
+  if (bws && bws.ws) glyphs.push(bws.ws);
+  glyphs.push(...markerBadgesForBian(markers, i).map((b) => b.g));
+  return glyphs.join(' ');
+};
+
+/** 伏神行「标记」列文本（v0.10）：伏神旺衰 + 伏神角标 */
+const fushenMarkerCell = (i) => {
+  if (!markers) return '';
+  const glyphs = [];
+  const fws = wangshuaiAt(markers, i, 'fushen');
+  if (fws && fws.ws) glyphs.push(fws.ws);
+  glyphs.push(...markerBadgesForFushen(markers, i).map((b) => b.g));
+  return glyphs.join(' ');
+};
+
+  // 数据行（第 1 行 = 上爻，最后 1 行 = 初爻；bian.liuqin 为上→初，5-i 取同爻位；
+  // 变卦爻画 bian.lines[i] 为纯数字 1/2，不带动爻 ● 标记；
+  // 旧快照 bian 可能无 lines 字段（仅 liuqin），此时变卦爻画列留空，不崩溃）
+  const rows = [];
+  for (let i = yao.length - 1; i >= 0; i--) {
+    const y = yao[i];
+    const b = bian ? parseLiqin(bian.liuqin[5 - i]) : null;
     const shi = y.shi ? '世' : y.ying ? '应' : '';
     const line = `${y.line ?? ''}${y.dong ? '●' : ''}`;
     const liuqin = LIUQIN_FULL[y.liuqin] ?? y.liuqin ?? '';
-    // 列序：五行后是爻画，再到世应（v0.10 建议4 #9）
-    return `| ${(pan.liushen ?? [])[i] ?? ''} | ${liuqin} | ${y.zhi ?? ''} | ${y.wuxing ?? ''} | ${line} | ${shi} |`;
-  });
-  return [head, header, sep, ...rows].join('\n');
+    const row = [liushen[i] ?? '', LINE_NAMES[i], liuqin];
+    if (hasGan) row.push(y.gan ?? '');
+    row.push(
+      y.zhi ?? '',
+      y.wuxing ?? '',
+      line,
+      shi,
+      benMarkerCell(i), // 本卦标记列（v0.10 改进建8 #5）
+      b ? LIUQIN_FULL[b.liuqin] ?? b.liuqin : '',
+    );
+    if (hasGan) row.push(b ? bian?.gan?.[i] ?? '' : ''); // 变卦天干列（v0.10 改进建7 #5）
+    row.push(b ? b.zhi : '', b ? b.wuxing : '', bian?.lines?.[i] ?? '');
+    row.push(bianMarkerCell(i)); // 表尾标记列：变卦标记（v0.10 改进建8 #5）
+    rows.push(row);
+    if (y.fushen) {
+      // 伏神行：六神列「伏神」、爻位列留空，六亲/地支/五行列填伏神值（六亲用全称），
+      // 天干/爻画/世应/本卦标记/变卦列留空；紧跟在所属爻行之后
+      const fu = LIUQIN_FULL[y.fushen.liuqin] ?? y.fushen.liuqin ?? '';
+      const fuRow = ['伏神', ''];
+      fuRow.push(fu);
+      if (hasGan) fuRow.push(''); // 天干
+      fuRow.push(y.fushen.zhi ?? '', y.fushen.wuxing ?? ''); // 地支 五行
+      fuRow.push('', ''); // 爻画 世应
+      fuRow.push(''); // 本卦标记（伏神行留空）
+      fuRow.push(''); // 变卦六亲
+      if (hasGan) fuRow.push(''); // 变卦天干
+      fuRow.push('', '', ''); // 变卦地支 变卦五行 变卦爻画
+      fuRow.push(fushenMarkerCell(i)); // 表尾标记列：伏神旺衰 + 伏神破合（v0.10）
+      rows.push(fuRow);
+    }
+  }
+
+  // 列宽 = max(表头显示宽, 该列所有单元格显示宽) + 2（两侧留白）
+  const widths = headerCells.map((h, ci) =>
+    Math.max(dispWidth(h), ...rows.map((r) => dispWidth(r[ci] ?? ''))) + 2,
+  );
+  const header = renderRow(headerCells, widths);
+  const sep = renderSep(widths);
+  return [head, header, sep, ...rows.map((r) => renderRow(r, widths))].join('\n');
 }
 
 /** 正文节：`## 标题\n\n内容`（内容空时留空行） */
 function section(title, content) {
   return `## ${title}\n\n${content}`;
+}
+
+/**
+ * 涂鸦节（v0.2 功能 A）：doodle 非空时生成
+ *   `![涂鸦](data:image/svg+xml;utf8,...)` 图片行 + ```json 元数据块（可逆还原源）
+ * 空/缺省返回 ''（旧卦例无涂鸦时跳过该节）。
+ */
+function renderDoodle(doodle) {
+  if (!doodle || !Array.isArray(doodle.elements) || doodle.elements.length === 0) return '';
+  const dataUri = doodleToDataUri(doodle);
+  const json = JSON.stringify(doodle);
+  return `![涂鸦](${dataUri})\n\n\`\`\`json\n${json}\n\`\`\``;
 }
 
 /**
@@ -210,13 +439,24 @@ export function guashiToMd(g) {
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n');
 
+  // 地支分析（功能一）：dizhiAnalysis 非空时在盘面后追加独立小节；旧快照无此字段则省略
+  const dizhi = renderDizhiAnalysis(rec.panSnapshot?.dizhiAnalysis ?? null);
+  // 涂鸦节（v0.2 功能 A）：doodle 非空时在盘面后、地支分析前
+  const doodleText = renderDoodle(rec.doodle);
+  // 背景节（v0.2 功能 D）：background 非空时在断语前
+  const background = rec.background ?? '';
+  // 节顺序（v0.2，涂鸦移最后 2026-08-09）：盘面→地支分析→背景→断语→应期→反馈→备注→涂鸦；
+  // 涂鸦数据放文件最后（占断内容之后）；importMd 按节名识别位置无关，导入恢复不受影响
   const body = [
-    section('盘面', renderPan(rec.panSnapshot)),
+    section('盘面', renderPan(rec.panSnapshot, rec)),
+    ...(dizhi ? [section('地支分析', dizhi)] : []),
+    ...(background ? [section('背景', background)] : []),
     section('断语', rec.duanyu ?? ''),
     section('应期', rec.yingqi ?? ''),
     // v0.10 建议4 #6：反馈/备注 位置互换
     section('反馈', rec.fankui ?? ''),
     section('备注', rec.beizhu ?? ''),
+    ...(doodleText ? [section('涂鸦', doodleText)] : []),
   ].join('\n\n');
 
   return `---\n${FM_GUIDE}\n${fm}\n---\n\n# ${rec.title ?? ''}\n\n${body}\n`;

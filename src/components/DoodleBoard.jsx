@@ -1,0 +1,606 @@
+/**
+ * 盘面画板（六爻工作台 - v0.2 功能 A，QQ 截图风；v0.10 修工具栏被涂鸦覆盖 + redo）
+ *
+ * 受控组件：props { enabled, doodle, onChange }
+ *   enabled=false → 不渲染覆盖层与工具栏，不拦截点击（GuashiLibPage 只传 pan 时安全）
+ *   doodle = {version,width,height,elements:[...6 种元素]} | null
+ *   onChange(newDoodle) 每次增删元素回调（撤销/重做/清空/绘制/文字）
+ *
+ * 实现：
+ *   - SVG 覆盖层 `preserveAspectRatio="none"`，viewBox = 画布尺寸（容器实测像素，坐标 1:1）
+ *   - pointer 事件绘制：pen 折线 / rect 矩形 / circle 圆形（外接盒）/ line / arrow
+ *   - text 工具点画布弹浮层输入，Enter 确认落字（字号=当前粗细档位）
+ *   - 工具栏：6 工具 + 外框/填充切换 + 8 色预设 + <input type="color"> 调色板
+ *     + 粗细滑块 1-30 + 撤销（弹末元素入 redo 栈）/ 重做 / 清空
+ *   - 工具栏 z-index 高于 SVG 覆盖层（v0.10 修复：SVG absolute 盖住工具栏导致点不了）
+ *   - 根节点 onClick stopPropagation，拦截爻位跳转（画板开启时优先级最高）
+ *
+ * 撤销/重做逻辑复用 doodleSvg.js（doodleUndo/doodleRedo/doodleCommit/doodleClear），
+ * redo 栈存于 doodle.redo，新画动作自动清空（见 doodleSvg.js 头注释）。
+ *
+ * 纯前端零依赖（React + 原生 SVG + input[type=color]），多端 WebView 行为一致。
+ */
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { doodleUndo, doodleRedo, doodleCommit, doodleClear, doodleErase, arrowHeadSize } from '../engine/doodleSvg.js'
+
+const TOOLS = [
+  { id: 'pen', label: '画笔' },
+  { id: 'text', label: '文字' },
+  { id: 'rect', label: '矩形' },
+  { id: 'circle', label: '圆形' },
+  { id: 'line', label: '画线' },
+  { id: 'arrow', label: '箭头' },
+  { id: 'eraser', label: '橡皮擦' },
+]
+
+/** 工具栏位置会话持久化 key（两页共用同一偏好；仅位置，不涉及各页画板开关状态） */
+const TOOLBAR_KEY = 'liuyao-doodle-toolbar'
+/** 粗细双槽记忆 key：{draw, text}（文字工具独立记忆默认 20，其他工具共享默认 4） */
+const WIDTH_KEY = 'liuyao-doodle-width'
+
+/** 读粗细双槽记忆（解析失败/无值回退默认 {draw:4, text:20}） */
+function readWidths() {
+  try {
+    const raw = sessionStorage.getItem(WIDTH_KEY)
+    if (raw) {
+      const v = JSON.parse(raw)
+      if (v && typeof v === 'object') {
+        return { draw: Number(v.draw) > 0 ? Number(v.draw) : 4, text: Number(v.text) > 0 ? Number(v.text) : 20 }
+      }
+    }
+  } catch (_) { /* 解析失败按默认 */ }
+  return { draw: 4, text: 20 }
+}
+
+const PRESET_COLORS = [
+  '#e74c3c', '#f39c12', '#f1c40f', '#2ecc71',
+  '#1abc9c', '#3498db', '#9b59b6', '#e5e7eb',
+]
+
+const toolBtnCls = (active) =>
+  `rounded-md border px-2 py-1 text-xs transition-colors ${
+    active ? 'border-gold bg-goldSoft text-gold' : 'border-border text-muted hover:text-text'
+  }`
+
+/** 单元素 → SVG JSX（含绘制中的 draft，半透明） */
+function SvgElement({ el, draft = false }) {
+  const cls = draft ? 'opacity-60' : ''
+  const fill = el.fill ? el.color : 'none'
+  switch (el.type) {
+    case 'pen':
+      return (
+        <path
+          className={cls}
+          d={el.points.map((p, k) => `${k === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
+          stroke={el.color}
+          strokeWidth={el.width}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )
+    case 'text':
+      return (
+        <text x={el.x} y={el.y} fontSize={el.size} fill={el.color} className={cls}>
+          {el.text}
+        </text>
+      )
+    case 'rect':
+      return (
+        <rect
+          className={cls}
+          x={el.x}
+          y={el.y}
+          width={el.w}
+          height={el.h}
+          stroke={el.color}
+          strokeWidth={el.strokeWidth}
+          fill={fill}
+        />
+      )
+    case 'circle':
+      return (
+        <circle
+          className={cls}
+          cx={el.cx}
+          cy={el.cy}
+          r={el.r}
+          stroke={el.color}
+          strokeWidth={el.strokeWidth}
+          fill={fill}
+        />
+      )
+    case 'line':
+      return (
+        <line
+          className={cls}
+          x1={el.x1}
+          y1={el.y1}
+          x2={el.x2}
+          y2={el.y2}
+          stroke={el.color}
+          strokeWidth={el.strokeWidth}
+          strokeLinecap="round"
+        />
+      )
+    case 'arrow': {
+      // v0.10 改进建8 #1：箭头尺寸随线宽联动（与序列化端 doodleSvg 共用 arrowHeadSize）
+      const angle = Math.atan2(el.y2 - el.y1, el.x2 - el.x1)
+      const size = arrowHeadSize(el.strokeWidth)
+      const p1 = { x: el.x2 - size * Math.cos(angle - Math.PI / 6), y: el.y2 - size * Math.sin(angle - Math.PI / 6) }
+      const p2 = { x: el.x2 - size * Math.cos(angle + Math.PI / 6), y: el.y2 - size * Math.sin(angle + Math.PI / 6) }
+      // 线条终点回退 0.866w（w·√3/2）：使线条平头端在箭头三角形内「宽度匹配」处结束，
+      // 尖端不外露平头截断面（线越粗越明显，箭头尖才会真正对准线条）
+      const w = Number(el.strokeWidth) || 3
+      const shrink = (w * Math.sqrt(3)) / 2
+      const lx2 = el.x2 - shrink * Math.cos(angle)
+      const ly2 = el.y2 - shrink * Math.sin(angle)
+      return (
+        <g className={cls}>
+          {/* v0.10 改进建7 #1：箭头线不再 round 线帽；线条终点回退进箭头三角形内（尖点保持 el.x2/el.y2） */}
+          <line
+            x1={el.x1}
+            y1={el.y1}
+            x2={lx2}
+            y2={ly2}
+            stroke={el.color}
+            strokeWidth={el.strokeWidth}
+          />
+          <polygon points={`${el.x2},${el.y2} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={el.color} />
+        </g>
+      )
+    }
+    default:
+      return null
+  }
+}
+
+export default function DoodleBoard({ enabled, doodle, onChange }) {
+  const containerRef = useRef(null)
+  const svgRef = useRef(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const [tool, setTool] = useState('pen')
+  const [color, setColor] = useState('#e74c3c')
+  // 粗细双槽（文字/其他工具独立记忆）：drawWidth 供画笔等绘制工具共享，textWidth 供文字专用；
+  // 当前粗细 = 派生值 strokeWidth（切工具自动切回各自记忆）；sessionStorage 持久化
+  const [drawWidth, setDrawWidth] = useState(() => readWidths().draw)
+  const [textWidth, setTextWidth] = useState(() => readWidths().text)
+  const strokeWidth = tool === 'text' ? textWidth : drawWidth
+  useEffect(() => {
+    try { sessionStorage.setItem(WIDTH_KEY, JSON.stringify({ draw: drawWidth, text: textWidth })) } catch (_) { /* 静默 */ }
+  }, [drawWidth, textWidth])
+  const [fill, setFill] = useState(false)
+  const [draft, setDraft] = useState(null) // 绘制中元素
+  const [textDraft, setTextDraft] = useState(null) // {x, y, value}
+  const textInputRef = useRef(null) // 文字浮层 input（显式 focus 兜底，见下方 effect）
+  // 工具栏位置（v0.10 改进建7 #1 可拖动，sessionStorage 持久；改进建9 #1 改 fixed 视口级定位）：
+  // 无已保存位置 → null（挂载后按画布容器实测位置默认，见 useLayoutEffect）
+  const [toolbarPos, setToolbarPos] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(TOOLBAR_KEY)
+      if (raw) {
+        const v = JSON.parse(raw)
+        if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) return { x: v.x, y: v.y }
+      }
+    } catch (_) { /* 解析失败按默认 */ }
+    return null
+  })
+  const toolbarPosRef = useRef(toolbarPos)
+  useEffect(() => { toolbarPosRef.current = toolbarPos }, [toolbarPos])
+  const dragRef = useRef(null) // {startX, startY, origX, origY}
+  // 工具栏尺寸（四角拖拽调形）：{w,h} 或 null=内容自适应；随位置一起 sessionStorage 持久化
+  const [toolbarSize, setToolbarSize] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(TOOLBAR_KEY)
+      if (raw) {
+        const v = JSON.parse(raw)
+        if (v && Number.isFinite(v.w) && Number.isFinite(v.h)) return { w: v.w, h: v.h }
+      }
+    } catch (_) { /* 解析失败按默认 */ }
+    return null
+  })
+  const toolbarSizeRef = useRef(toolbarSize)
+  useEffect(() => { toolbarSizeRef.current = toolbarSize }, [toolbarSize])
+  const resizeRef = useRef(null) // {startX, startY, origW, origH, corner}
+
+  // 容器实测尺寸（viewBox 坐标 1:1 用）+ 工具栏初始定位（改进建9 #1）：
+  // 仅在启用时测量一次，随窗口变化不追踪（保持已绘坐标稳定）。
+  // 工具栏改 fixed 视口定位后需真实落点：无已保存位置时默认落在画布容器左上角
+  // （延续旧「盘面左上角」观感）；用 useLayoutEffect 在绘制前完成，避免先闪现视口 (0,0)。
+  useLayoutEffect(() => {
+    if (!enabled) return undefined
+    const el = containerRef.current
+    if (!el) return undefined
+    const rect = el.getBoundingClientRect()
+    if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height })
+    setToolbarPos((prev) => {
+      if (prev) return prev
+      return { x: Math.round(rect.left) + 8, y: Math.round(rect.top) + 8 }
+    })
+    return undefined
+  }, [enabled])
+
+  // 文字浮层打开后聚焦输入框（改进建9 #1 修复「点文字工具后没有输入框」）：
+  // autoFocus 在部分 WebView/触屏下时序不稳，此处显式 focus 兜底，
+  // 确保「点画布 → 弹输入框」稳定出现。
+  useEffect(() => {
+    if (textDraft) textInputRef.current?.focus()
+  }, [textDraft])
+
+  if (!enabled) return null
+
+  const elements = doodle && Array.isArray(doodle.elements) ? doodle.elements : []
+  // 画布尺寸：优先已存 doodle 尺寸（导入还原时保持一致），否则容器实测，再兜底 600x400
+  const width = (doodle && Number(doodle.width)) || size.width || 600
+  const height = (doodle && Number(doodle.height)) || size.height || 400
+
+  // 文字浮层定位兜底（改进建9 #1）：百分比钳制在画布内，靠近右/下边缘时收进容器，
+  // 避免输入框（w-44 ≈ 190px）超出画布被 PanView overflow-hidden 裁剪而「看不到」。
+  const textLeftPct = textDraft
+    ? (Math.max(0, Math.min(Math.max(1, width) - 190, textDraft.x)) / Math.max(1, width)) * 100
+    : 0
+  const textTopPct = textDraft
+    ? (Math.max(0, Math.min(Math.max(1, height) - 34, textDraft.y - 18)) / Math.max(1, height)) * 100
+    : 0
+
+  /** 工具栏当前渲染位置：无保存值（首次挂载未测量完成）时兜底视口 (8,8) */
+  const tp = toolbarPos ?? { x: 8, y: 8 }
+
+  /** pointer 事件 → 画布坐标（viewBox 与容器像素映射，preserveAspectRatio="none" 下按比例换算） */
+  const getPoint = (e) => {
+    const rect = svgRef.current ? svgRef.current.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 }
+    const sx = rect.width ? width / rect.width : 1
+    const sy = rect.height ? height / rect.height : 1
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
+  }
+
+  /** 提交元素（新元素追加到末尾，清空 redo 栈） */
+  const commit = (el) => {
+    onChange?.(doodleCommit(doodle, el, width, height))
+    setDraft(null)
+  }
+
+  /** 撤销：弹出最后一个元素（压入 redo 栈） */
+  const undo = () => {
+    const next = doodleUndo(doodle)
+    if (next) onChange?.(next)
+  }
+
+  /** 重做：从 redo 栈弹出最后一个元素追加回（v0.10） */
+  const redo = () => {
+    const next = doodleRedo(doodle)
+    if (next) onChange?.(next)
+  }
+
+  /** 清空全部元素（含 redo 栈） */
+  const clearAll = () => {
+    onChange?.(doodleClear(doodle, width, height))
+  }
+
+  /** 前进可用判定（v0.10 改进建7 #1，QA #1b 修复）：仅当 redo 栈非空且栈顶为普通元素时可前进；
+   * 栈顶为橡皮擦记录（{op:'erase'}）→ 前进禁用（擦除记录仅服务后退还原，绝不当元素追加） */
+  const redoList = doodle && Array.isArray(doodle.redo) ? doodle.redo : []
+  const lastRedo = redoList[redoList.length - 1]
+  const redoCount = redoList.length > 0 && !(lastRedo && lastRedo.op === 'erase') ? redoList.length : 0
+  /** 后退可用判定（QA #1b 补）：elements 非空可弹末元素；或 redo 栈顶为擦除记录可还原（elements 已空也能后退还原被擦元素） */
+  const canUndo = elements.length > 0 || !!(lastRedo && lastRedo.op === 'erase')
+
+  /** 橡皮擦：点击元素删除（元素级删除，压入 redo 栈可撤销） */
+  const eraseEl = (k, e) => {
+    e.stopPropagation()
+    const next = doodleErase(doodle, k)
+    if (next) onChange?.(next)
+  }
+
+  /** 工具栏拖拽（v0.10 改进建7 #1：pointer capture 拖把手移动位置，松手持久化；
+   *  v0.10 改进建8 #1：放开边界限制，可在页面范围内自由移动定位（允许负坐标/越界）） */
+  const onHandleDown = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const base = toolbarPosRef.current ?? { x: 8, y: 8 } // 首次挂载未完成定位前的兜底
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: base.x,
+      origY: base.y,
+    }
+    try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
+  }
+  const onHandleMove = (e) => {
+    const d = dragRef.current
+    if (!d) return
+    setToolbarPos({
+      x: d.origX + e.clientX - d.startX,
+      y: d.origY + e.clientY - d.startY,
+    })
+  }
+  const onHandleUp = () => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    try {
+      sessionStorage.setItem(
+        TOOLBAR_KEY,
+        JSON.stringify({ ...toolbarPosRef.current, ...toolbarSizeRef.current }),
+      )
+    } catch (_) { /* 静默 */ }
+  }
+
+  /** 四角拖拽调形：pointer capture 拖把手改变浮窗形状（宽度收窄时功能按钮自动换行重排）；
+   *  首次拖拽（无已存尺寸）从当前内容实测尺寸起步；松手随位置一起持久化 */
+  const onResizeDown = (e, corner) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = e.currentTarget.parentElement?.getBoundingClientRect?.()
+    const base =
+      toolbarSizeRef.current ??
+      (rect && rect.width ? { w: rect.width, h: rect.height } : { w: 300, h: 48 })
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: base.w, origH: base.h, corner }
+    try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
+  }
+  const onResizeMove = (e) => {
+    const r = resizeRef.current
+    if (!r) return
+    const dx = e.clientX - r.startX
+    const dy = e.clientY - r.startY
+    // corner 含 e → 东侧角（宽度随 dx）；含 s → 南侧角（高度随 dy）；否则反向（西/北角）
+    const w = r.origW + (r.corner.includes('e') ? dx : -dx)
+    const h = r.origH + (r.corner.includes('s') ? dy : -dy)
+    const next = { w: Math.max(220, w), h: Math.max(40, h) }
+    toolbarSizeRef.current = next // 同步 ref：pointerup 可能在同一批事件内到达，state 尚未 flush
+    setToolbarSize(next)
+  }
+  const onResizeUp = () => {
+    if (!resizeRef.current) return
+    resizeRef.current = null
+    try {
+      sessionStorage.setItem(
+        TOOLBAR_KEY,
+        JSON.stringify({ ...toolbarPosRef.current, ...toolbarSizeRef.current }),
+      )
+    } catch (_) { /* 静默 */ }
+  }
+
+  const handlePointerDown = (e) => {
+    if (tool === 'eraser') return // 橡皮擦不启动绘制，交由元素 onClick 删除
+    if (tool === 'text') {
+      // 改进建9 #1 修复「点文字工具后没有输入框」：阻止 pointerdown 默认行为。
+      // 浏览器默认会在 pointerdown 后将焦点移到事件目标（SVG/body），使刚 autoFocus
+      // 的浮层 input 立即失焦 → onBlur 空值提交 → setTextDraft(null) → 输入框一闪而过。
+      e.preventDefault()
+      setTextDraft({ ...getPoint(e), value: '' })
+      return
+    }
+    const p = getPoint(e)
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+    } catch (_) { /* 测试环境无 pointer capture 时静默 */ }
+    if (tool === 'pen') {
+      setDraft({ type: 'pen', color, width: strokeWidth, points: [p] })
+    } else if (tool === 'rect') {
+      setDraft({ type: 'rect', start: p, x: p.x, y: p.y, w: 0, h: 0, color, strokeWidth, fill })
+    } else if (tool === 'circle') {
+      setDraft({ type: 'circle', start: p, cx: p.x, cy: p.y, r: 0, color, strokeWidth, fill })
+    } else if (tool === 'line' || tool === 'arrow') {
+      setDraft({ type: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color, strokeWidth })
+    }
+  }
+
+  const handlePointerMove = (e) => {
+    if (!draft) return
+    const p = getPoint(e)
+    if (draft.type === 'pen') {
+      setDraft({ ...draft, points: [...draft.points, p] })
+    } else if (draft.type === 'rect') {
+      setDraft({
+        ...draft,
+        x: Math.min(draft.start.x, p.x),
+        y: Math.min(draft.start.y, p.y),
+        w: Math.abs(p.x - draft.start.x),
+        h: Math.abs(p.y - draft.start.y),
+      })
+    } else if (draft.type === 'circle') {
+      setDraft({
+        ...draft,
+        cx: (draft.start.x + p.x) / 2,
+        cy: (draft.start.y + p.y) / 2,
+        r: Math.max(Math.abs(p.x - draft.start.x), Math.abs(p.y - draft.start.y)) / 2,
+      })
+    } else if (draft.type === 'line' || draft.type === 'arrow') {
+      setDraft({ ...draft, x2: p.x, y2: p.y })
+    }
+  }
+
+  const handlePointerUp = () => {
+    if (!draft) return
+    commit(draft)
+  }
+
+  /** 文字确认：非空文本落字（字号=当前粗细档位）。v0.10 修复双提交：
+   * 先置空 textDraft 再 commit，避免 Enter 提交后浮层残留触发 onBlur 二次落字 */
+  const commitText = () => {
+    const t = (textDraft?.value ?? '').trim()
+    if (t && textDraft) {
+      const p = { x: textDraft.x, y: textDraft.y }
+      setTextDraft(null)
+      commit({ type: 'text', x: p.x, y: p.y, text: t, size: strokeWidth, color })
+    } else {
+      setTextDraft(null)
+    }
+  }
+
+  return (
+    <>
+      {/* 画板覆盖层（SVG 绘制 + 文字浮层） */}
+      <div
+        ref={containerRef}
+        className="absolute inset-0 z-20"
+        onClick={(e) => e.stopPropagation()} // 拦截爻位跳转（画板开启优先级最高）
+      >
+        {/* SVG 覆盖层：viewBox = 画布尺寸，preserveAspectRatio="none" 坐标 1:1 */}
+        <svg
+          ref={svgRef}
+          className={`absolute inset-0 h-full w-full touch-none ${tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'}`}
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          {elements.map((el, k) => (
+            <g
+              key={k}
+              onClick={tool === 'eraser' ? (e) => eraseEl(k, e) : undefined}
+              className={tool === 'eraser' ? 'cursor-pointer' : undefined}
+            >
+              <SvgElement el={el} />
+            </g>
+          ))}
+          {draft ? <SvgElement el={draft} draft /> : null}
+        </svg>
+
+        {/* 文字工具浮层：点画布后在此输入，回车确认落字（v0.10 按画布坐标百分比定位，避免缩放错位；
+            改进建9 #1 百分比钳制在画布内 + 显式 focus 兜底） */}
+        {textDraft ? (
+          <div
+            className="absolute z-40"
+            style={{
+              left: `${textLeftPct}%`,
+              top: `${textTopPct}%`,
+            }}
+          >
+            <input
+              ref={textInputRef}
+              autoFocus
+              value={textDraft.value}
+              onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitText()
+                else if (e.key === 'Escape') setTextDraft(null)
+              }}
+              onBlur={commitText}
+              placeholder="输入文字，回车确认"
+              className="w-44 rounded-md border border-gold bg-bg px-2 py-0.5 text-sm text-text outline-none"
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {/* 工具栏（v0.10 改进建7 #1：可拖拽移动，位置 sessionStorage 持久；拖把手 ⋮⋮ 移动，
+          松手落位，避免遮挡卦名/爻行；后退/前进 = 撤销/重做）
+          改进建9 #1：fixed 视口级定位，脱离 PanView overflow-hidden 裁剪 → 可在整个窗口
+          页面自由移动；随 DoodleBoard 卸载自动消失
+          （玄穹修复：createPortal 到 body，脱离 .card 动画 transform 捕获的 containing
+          block——否则 fixed 定位被盘面卡片接管，页面滚动后工具栏漂移/消失） */}
+      {createPortal(
+        <div
+          data-testid="doodle-toolbar"
+          className="fixed z-50"
+          style={{ position: 'fixed', left: tp.x, top: tp.y }}
+        >
+        <div
+          className="relative flex select-none flex-wrap items-center gap-1.5 rounded-md border border-border bg-toolbarBg px-2 py-1.5 shadow-lg"
+          style={{
+            width: toolbarSize ? `${toolbarSize.w}px` : undefined,
+            minHeight: toolbarSize ? `${toolbarSize.h}px` : undefined,
+          }}
+        >
+          {/* 四角拖拽把手（改进建9 #2：拖动边角改变浮窗形状，宽度变化时功能按钮 flex-wrap 自动换行重排） */}
+          {[
+            { corner: 'nw', cls: '-left-1.5 -top-1.5 cursor-nwse-resize' },
+            { corner: 'ne', cls: '-right-1.5 -top-1.5 cursor-nesw-resize' },
+            { corner: 'sw', cls: '-left-1.5 -bottom-1.5 cursor-nesw-resize' },
+            { corner: 'se', cls: '-right-1.5 -bottom-1.5 cursor-nwse-resize' },
+          ].map(({ corner, cls }) => (
+            <span
+              key={corner}
+              data-testid={`resize-${corner}`}
+              className={`absolute h-3 w-3 ${cls} touch-none rounded-sm bg-borderDim70 transition-colors hover:bg-gold`}
+              title="拖动调整工具栏形状"
+              onPointerDown={(e) => onResizeDown(e, corner)}
+              onPointerMove={onResizeMove}
+              onPointerUp={onResizeUp}
+              onPointerCancel={onResizeUp}
+            />
+          ))}
+          <span
+            className="cursor-grab touch-none select-none px-0.5 text-muted transition-colors active:cursor-grabbing hover:text-gold"
+            title="拖动移动工具栏"
+            onPointerDown={onHandleDown}
+            onPointerMove={onHandleMove}
+            onPointerUp={onHandleUp}
+            onPointerCancel={onHandleUp}
+          >
+            ⋮⋮
+          </span>
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTool(t.id)}
+              className={toolBtnCls(tool === t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFill(!fill)}
+            title="矩形/圆形外框与填充切换"
+            className={toolBtnCls(fill)}
+          >
+            {fill ? '填充' : '外框'}
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-border" />
+          {PRESET_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={`颜色 ${c}`}
+              onClick={() => setColor(c)}
+              className={`h-4 w-4 rounded-full border ${color === c ? 'border-gold ring-1 ring-gold' : 'border-border'}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            title="调色板"
+            className="h-5 w-6 cursor-pointer border border-border bg-transparent"
+          />
+          <span className="mx-0.5 h-4 w-px bg-border" />
+          <label className="flex items-center gap-1 text-[11px] text-muted">
+            粗细
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={strokeWidth}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                // 双槽记忆：文字工具调文字槽，其他工具调共享绘制槽
+                if (tool === 'text') setTextWidth(v)
+                else setDrawWidth(v)
+              }}
+              className="w-20"
+            />
+            <span className="w-5 text-right text-gold">{strokeWidth}</span>
+          </label>
+          <span className="mx-0.5 h-4 w-px bg-border" />
+          <button type="button" onClick={undo} disabled={!canUndo} className={toolBtnCls(false)}>
+            后退
+          </button>
+          <button type="button" onClick={redo} disabled={redoCount === 0} className={toolBtnCls(false)}>
+            前进
+          </button>
+          <button type="button" onClick={clearAll} disabled={elements.length === 0} className={toolBtnCls(false)}>
+            清空
+          </button>
+        </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}

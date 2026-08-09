@@ -347,3 +347,168 @@ describe('mdToGuashi 往返（导出 → 导入）', () => {
     expect(g.fankui).toBe(rec.fankui);
   });
 });
+
+describe('mdToGuashi v0.2 新节（涂鸦/背景/笔记）', () => {
+  test('涂鸦节：json 元数据块还原 doodle；图片行不干扰解析', () => {
+    const doodle = {
+      version: 1, width: 600, height: 400,
+      elements: [
+        { type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 10, y: 20 }, { x: 30, y: 40 }] },
+        { type: 'text', x: 120, y: 90, text: '测卦', size: 20, color: '#e74c3c' },
+      ],
+    };
+    const g = mdToGuashi(guashiToMd(makeGuashi({ doodle }))).guashi;
+    expect(g.doodle).toEqual(doodle);
+    expect(g.duanyu).toBe('出行顺利'); // 涂鸦节不污染断语
+  });
+
+  test('背景节/笔记节：background 还原；「笔记」与「备注」均映射 beizhu', () => {
+    const g = mdToGuashi(guashiToMd(makeGuashi({ background: '占测出差', beizhu: '记得带伞' }))).guashi;
+    expect(g.background).toBe('占测出差');
+    expect(g.beizhu).toBe('记得带伞');
+    // 手写 md 用「笔记」节名 → beizhu
+    const md = '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 笔记\n手写笔记内容\n';
+    expect(mdToGuashi(md).guashi.beizhu).toBe('手写笔记内容');
+    // 旧 md 用「备注」节名 → beizhu（向后兼容）
+    const mdOld = '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 备注\n旧版备注\n';
+    expect(mdToGuashi(mdOld).guashi.beizhu).toBe('旧版备注');
+  });
+
+  test('旧 md（无新节）导入不崩：background 默认空串、doodle 默认 null', () => {
+    const oldMd = '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 断语\n测试';
+    const g = mdToGuashi(oldMd).guashi;
+    expect(g.ok !== false).toBe(true);
+    expect(g.background).toBe('');
+    expect(g.doodle).toBeNull();
+    expect(g.duanyu).toBe('测试');
+  });
+
+  test('涂鸦节 json 解析失败 → doodle 置 null，其余字段正常（不阻断导入）', () => {
+    const md =
+      '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 涂鸦\n![涂鸦](data:image/svg+xml;utf8,xxx)\n\n```json\n{ 这不是合法 JSON }\n```\n\n## 断语\n正常断语';
+    const g = mdToGuashi(md).guashi;
+    expect(g.doodle).toBeNull();
+    expect(g.duanyu).toBe('正常断语');
+  });
+
+  test('新 md 被旧版解析器不崩（仅丢新字段）：新节对旧节解析无副作用', () => {
+    // 模拟旧版解析器只认 盘面/断语/应期/备注/反馈 五个节：
+    // 涂鸦/背景/笔记 视为未知节 → 被并入 buffer 丢弃，旧字段全部保留
+    const md = guashiToMd(makeGuashi({
+      background: '背景内容',
+      beizhu: '备注内容',
+      doodle: { version: 1, width: 600, height: 400, elements: [{ type: 'line', x1: 0, y1: 0, x2: 1, y2: 1, color: '#fff', strokeWidth: 3 }] },
+      duanyu: '断语内容',
+      fankui: '反馈内容',
+    }));
+    const r = mdToGuashi(md); // 新解析器完整还原
+    expect(r.ok).toBe(true);
+    expect(r.guashi.background).toBe('背景内容');
+    expect(r.guashi.beizhu).toBe('备注内容');
+    expect(r.guashi.doodle).not.toBeNull();
+    expect(r.guashi.duanyu).toBe('断语内容');
+    expect(r.guashi.fankui).toBe('反馈内容');
+    expect(r.guashi.yingqi).toBe('明日');
+  });
+
+  test('v0.2 全字段 round-trip：涂鸦+背景+笔记 往返无损', () => {
+    const rec = makeGuashi({
+      background: '起卦背景：问事业',
+      beizhu: '笔记：下月再看',
+      doodle: {
+        version: 1, width: 320, height: 240,
+        elements: [
+          { type: 'arrow', x1: 0, y1: 0, x2: 100, y2: 100, color: '#3498db', strokeWidth: 6 },
+          { type: 'rect', x: 10, y: 10, w: 40, h: 20, color: '#2ecc71', strokeWidth: 2, fill: true },
+        ],
+      },
+    });
+    const g = mdToGuashi(guashiToMd(rec)).guashi;
+    expect(g.background).toBe(rec.background);
+    expect(g.beizhu).toBe(rec.beizhu);
+    expect(g.doodle).toEqual(rec.doodle);
+  });
+});
+
+describe('mdToGuashi 用神（v0.2 功能 I）', () => {
+  test('快照带用神导出 md → 导入还原 guashi.yongShen（六亲）', () => {
+    const rec = makeGuashi({
+      panSnapshot: { ...snap, yongShen: { type: 'liuqin', value: '财' } },
+    });
+    const md = guashiToMd(rec);
+    expect(md).toContain('用神：六亲 财');
+    const g = mdToGuashi(md).guashi;
+    expect(g.yongShen).toEqual({ type: 'liuqin', value: '财' });
+  });
+
+  test('快照带用神导出 md → 导入还原 guashi.yongShen（地支）', () => {
+    const rec = makeGuashi({
+      panSnapshot: { ...snap, yongShen: { type: 'zhi', value: '寅' } },
+    });
+    const md = guashiToMd(rec);
+    expect(md).toContain('用神：地支 寅');
+    const g = mdToGuashi(md).guashi;
+    expect(g.yongShen).toEqual({ type: 'zhi', value: '寅' });
+  });
+
+  test('旧 md（无盘面用神行）→ yongShen 为 null（向后兼容）', () => {
+    const g = mdToGuashi('---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 盘面\n本卦：乾为天\n\n## 断语\n测试').guashi;
+    expect(g.yongShen).toBeNull();
+    expect(g.duanyu).toBe('测试');
+  });
+
+  test('手写 md 盘面含用神行也可解析（与 paipan yongShen 参数同构）', () => {
+    const md =
+      '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 盘面\n本卦：乾为天\n用神：六亲 父\n\n## 断语\n测试';
+    const g = mdToGuashi(md).guashi;
+    expect(g.yongShen).toEqual({ type: 'liuqin', value: '父' });
+  });
+
+  test('用神参与重排：导入后 paipan 传 yongShen 得盘面带用神高亮', () => {
+    const rec = makeGuashi({
+      panSnapshot: { ...snap, yongShen: { type: 'liuqin', value: '财' } },
+    });
+    const g = mdToGuashi(guashiToMd(rec)).guashi;
+    const pan = paipan({
+      method: g.method,
+      params: g.params,
+      date: new Date(2026, 7, 4, 10, 30),
+      yongShen: g.yongShen,
+    });
+    expect(pan.yongShen).toEqual({ type: 'liuqin', value: '财' });
+  });
+});
+
+describe('mdToGuashi 创建/最后编辑（v0.10 改进建7 #3）', () => {
+  test('盘面 head 行「创建/最后编辑」→ createdAt/updatedAt（YYYY-MM-DD HH:mm → 时间戳）', () => {
+    // 本地时间 Date（fmtTs 按本地时区，避免 UTC 构造时区漂移）
+    const created = new Date(2026, 7, 8, 9, 0).getTime();
+    const updated = new Date(2026, 7, 8, 10, 30).getTime();
+    const md = guashiToMd(makeGuashi({ createdAt: created, updatedAt: updated }));
+    const g = mdToGuashi(md).guashi;
+    expect(g.createdAt).toBe(created);
+    expect(g.updatedAt).toBe(updated);
+  });
+
+  test('仅创建（date 回退）→ createdAt 落字段、updatedAt 不落', () => {
+    const created = new Date(2026, 7, 8, 9, 0).getTime();
+    const md = guashiToMd(makeGuashi({ createdAt: created }));
+    const g = mdToGuashi(md).guashi;
+    expect(g.createdAt).toBe(created);
+    expect('updatedAt' in g).toBe(false);
+  });
+
+  test('缺失（旧 md 无创建/最后编辑行）→ createdAt/updatedAt 不落字段（向后兼容，仓储默认补齐）', () => {
+    const g = mdToGuashi('---\ntitle: 旧卦例\ndate: 2026-08-04\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# 旧卦例\n\n## 盘面\n本卦：天风姤（乾宫）\n\n## 断语\n测试').guashi;
+    expect('createdAt' in g).toBe(false);
+    expect('updatedAt' in g).toBe(false);
+  });
+
+  test('手写 md 盘面含创建/最后编辑行也可解析', () => {
+    const md =
+      '---\ntitle: x\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# x\n\n## 盘面\n本卦：乾为天（乾宫）\n创建：2026-08-08 09:00　最后编辑：2026-08-08 10:30\n\n## 断语\n测试';
+    const g = mdToGuashi(md).guashi;
+    expect(g.createdAt).toBe(new Date(2026, 7, 8, 9, 0).getTime());
+    expect(g.updatedAt).toBe(new Date(2026, 7, 8, 10, 30).getTime());
+  });
+});

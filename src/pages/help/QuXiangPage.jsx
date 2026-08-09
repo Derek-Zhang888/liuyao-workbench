@@ -19,7 +19,7 @@ import {
 /** 表格容器（横向滚动） */
 function TableBox({ title, hint, children }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-panel">
+    <section className="overflow-hidden card rounded-xl border border-border bg-panel">
       <div className="flex flex-wrap items-baseline gap-2 border-b border-border bg-black/20 px-4 py-2">
         <h3 className="text-sm font-medium text-gold">{title}</h3>
         {hint && <span className="text-xs text-muted">{hint}</span>}
@@ -43,8 +43,9 @@ export default function QuXiangPage() {
             </tr>
           </thead>
           <tbody>
-            {YAO_QUXIANG.map((q) => (
-              <tr key={q.line} className="border-b border-border/60 transition-colors last:border-0 hover:bg-goldSoft">
+            {/* 上爻在上、初爻在下：数据源保持初→上，展示时反转 */}
+            {[...YAO_QUXIANG].reverse().map((q) => (
+              <tr key={q.line} className="border-b border-borderDim transition-colors last:border-0 hover:bg-goldSoft">
                 <td className="px-4 py-2 text-gold">{q.line}</td>
                 <td className="px-4 py-2 text-text">{q.body}</td>
                 <td className="px-4 py-2 text-muted">{q.meaning}</td>
@@ -69,7 +70,7 @@ export default function QuXiangPage() {
           </thead>
           <tbody>
             {DIZHI_QUXIANG.map((q) => (
-              <tr key={q.zhi} className="border-b border-border/60 transition-colors last:border-0 hover:bg-goldSoft">
+              <tr key={q.zhi} className="border-b border-borderDim transition-colors last:border-0 hover:bg-goldSoft">
                 <td className="px-4 py-2 font-medium" style={{ color: WUXING_COLOR[q.wuxing] }}>
                   {q.zhi}
                 </td>
@@ -99,7 +100,7 @@ export default function QuXiangPage() {
             </thead>
             <tbody>
               {LIUQIN_QUXIANG.map((q) => (
-                <tr key={q.name} className="border-b border-border/60 align-top transition-colors last:border-0 hover:bg-goldSoft">
+                <tr key={q.name} className="border-b border-borderDim align-top transition-colors last:border-0 hover:bg-goldSoft">
                   <td className="px-4 py-2 whitespace-nowrap text-gold">{q.name}</td>
                   <td className="px-4 py-2 whitespace-nowrap text-muted">{q.relation}</td>
                   <td className="px-4 py-2 text-muted">{q.image}</td>
@@ -120,7 +121,7 @@ export default function QuXiangPage() {
             </thead>
             <tbody>
               {LIUSHEN_QUXIANG.map((q) => (
-                <tr key={q.name} className="border-b border-border/60 align-top transition-colors last:border-0 hover:bg-goldSoft">
+                <tr key={q.name} className="border-b border-borderDim align-top transition-colors last:border-0 hover:bg-goldSoft">
                   <td className="px-4 py-2 whitespace-nowrap text-gold">{q.name}</td>
                   <td className="px-4 py-2 whitespace-nowrap" style={{ color: WUXING_COLOR[q.wuxing] }}>
                     {q.wuxing}

@@ -17,9 +17,26 @@ import { openDB, reqToPromise } from '../db/index.js'
 import { getSetting, setSetting } from '../db/settingsRepo.js'
 import { listGuashi, purgeGuashi, replaceAllGuashi } from '../db/guashiRepo.js'
 import { addTag, listTags } from '../db/tagsRepo.js'
+import { MARKER_KEYS } from '../engine/panMarkers.js'
+import { getTheme, setTheme } from '../utils/theme.js'
 
 /** 与 package.json 保持一致 */
 const APP_VERSION = '0.1.0'
+
+/** 盘面标记 11 开关定义（v0.2 功能 B）：key 与 settings 表一致，默认全关 */
+const MARKER_DEFS = [
+  { key: 'marker-wangshuai', label: '旺相休囚死', desc: '每个爻位地支五行右上角显示小字（旺/相/休/囚/死），直读引擎旺衰，五行配色区分。' },
+  { key: 'marker-yuepo', label: '显示月破', desc: '爻被月建所冲时在爻行显示「破」。' },
+  { key: 'marker-ripo', label: '显示日破', desc: '爻被日建所冲（静爻休囚细分按引擎口径）时在爻行显示「破·暗」。' },
+  { key: 'marker-yuehe', label: '显示月合', desc: '爻与月建六合时在爻行显示「合」。' },
+  { key: 'marker-rihe', label: '显示日合', desc: '爻与日建六合时在爻行显示「合」。' },
+  { key: 'marker-huitou-sheng', label: '显示动爻回头生', desc: '动爻化回头生时在爻行显示「↳生」。' },
+  { key: 'marker-huitou-ke', label: '显示动爻回头克', desc: '动爻化回头克时在爻行显示「↳克」。' },
+  { key: 'marker-huitou-chong', label: '显示动爻回头冲', desc: '动爻化回头冲时在爻行显示「↳冲」（本变同爻位地支相冲）。' },
+  { key: 'marker-huitou-he', label: '显示动爻回头合', desc: '动爻化回头合时在爻行显示「↳合」（本变同爻位地支六合）。' },
+  { key: 'marker-jintui-fanfuyin', label: '显示化进退和反伏吟', desc: '动爻化进/化退显示「进/退」；反伏吟（本变地支相冲/相同）显示「伏/反」。' },
+  { key: 'marker-riyue-liuqin', label: '日月建显示六亲', desc: '月建/日建旁显示其地支五行对应卦宫六亲（按卦宫五行推算）。' },
+]
 
 /** 时间戳 → 'YYYYMMDD'（备份文件名用） */
 function ymd(ts) {
@@ -38,11 +55,15 @@ export default function SettingsPage() {
   const fileRef = useRef(null)
   const [days, setDays] = useState('') // 输入框文本
   const [currentDays, setCurrentDays] = useState(30) // 已保存的值
+  const [nagan, setNagan] = useState(false) // 纳干开关（功能三）
+  const [markers, setMarkers] = useState({}) // 盘面标记 11 开关（v0.2 功能 B）：{key:bool}
+  const [remindDup, setRemindDup] = useState(true) // v0.10 #6：重名保存提醒开关（默认开）
   const [recycleCount, setRecycleCount] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const [tagCount, setTagCount] = useState(0)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  const [theme, setThemeSel] = useState(getTheme()) // 界面主题三选：light / system / dark
 
   /** 刷新数据概况（卦例 / 回收站 / 标签数量） */
   const refresh = async () => {
@@ -69,9 +90,36 @@ export default function SettingsPage() {
       } catch (e) {
         setError('读取设置失败：' + e.message)
       }
+      try {
+        setNagan(!!(await getSetting('nagan')))
+      } catch (_) { /* 纳干开关读取失败按关闭处理 */ }
+      // 盘面标记 11 开关（v0.2 功能 B）：逐键读取，失败按关闭处理
+      const m = {}
+      for (const k of MARKER_KEYS) {
+        try {
+          m[k] = !!(await getSetting(k))
+        } catch (_) {
+          m[k] = false
+        }
+      }
+      setMarkers(m)
+      // v0.10 #6：重名保存提醒（默认开）
+      try {
+        setRemindDup((await getSetting('remind-duplicate-title')) ?? true)
+      } catch (_) {
+        setRemindDup(true)
+      }
       refresh()
     })()
   }, [])
+
+  /* ---------- 界面主题三选（玄穹方案） ---------- */
+  const handleTheme = (v) => {
+    setThemeSel(v)
+    setTheme(v)
+    setMsg(v === 'system' ? '已切换为跟随系统：界面将随系统深浅色自动切换' : `已切换为${v === 'dark' ? '深色' : '浅色'}主题`)
+    setError('')
+  }
 
   /* ---------- 回收站保留天数 ---------- */
   const handleSaveDays = async () => {
@@ -88,6 +136,45 @@ export default function SettingsPage() {
       setError('')
     } catch (e) {
       setError('保存失败：' + e.message)
+    }
+  }
+
+  /* ---------- 纳干开关（功能三） ---------- */
+  const handleNagan = async (v) => {
+    setNagan(v)
+    try {
+      await setSetting('nagan', v)
+      setMsg(v ? '已开启纳干：新起卦盘面将在爻地支前显示天干（如「甲寅木」）' : '已关闭纳干：盘面不再显示天干')
+      setError('')
+    } catch (e) {
+      setError('保存失败：' + e.message)
+      setNagan(!v) // 保存失败回滚开关
+    }
+  }
+
+  /* ---------- 盘面标记 11 开关（v0.2 功能 B） ---------- */
+  const handleMarkerToggle = async (key, v) => {
+    setMarkers((m) => ({ ...m, [key]: v }))
+    try {
+      await setSetting(key, v)
+      setMsg(v ? `已开启「${MARKER_DEFS.find((d) => d.key === key)?.label ?? key}」：返回排盘页重新起卦/恢复后即时展示` : '已关闭该盘面标记')
+      setError('')
+    } catch (e) {
+      setError('保存失败：' + e.message)
+      setMarkers((m) => ({ ...m, [key]: !v })) // 保存失败回滚开关
+    }
+  }
+
+  /* ---------- 重名保存提醒（v0.10 #6） ---------- */
+  const handleRemindDup = async (v) => {
+    setRemindDup(v)
+    try {
+      await setSetting('remind-duplicate-title', v)
+      setMsg(v ? '已开启重名保存提醒：卦题重名时保存前会弹窗确认' : '已关闭重名保存提醒：卦题重名时直接保存（同名覆盖不弹窗）')
+      setError('')
+    } catch (e) {
+      setError('保存失败：' + e.message)
+      setRemindDup(!v) // 保存失败回滚开关
     }
   }
 
@@ -201,14 +288,83 @@ export default function SettingsPage() {
       {/* 顶栏 */}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-medium text-gold">设置</h1>
-        <span className="text-xs text-muted">回收站保留天数与数据备份</span>
+        <span className="text-xs text-muted">回收站保留天数、纳干开关与数据备份</span>
       </div>
 
       {msg && <div className="text-sm text-gold">{msg}</div>}
       {error && <div className="text-sm text-red">{error}</div>}
 
+      {/* 卡片 0：界面主题（玄穹方案：浅色 / 跟随系统 / 深色） */}
+      <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+        <h2 className="text-base font-medium text-gold">界面主题</h2>
+        <p className="text-sm text-muted">
+          玄穹深空风格，支持浅色 / 深色双模式。选择立即生效并记忆，下次打开保持。
+        </p>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="界面主题">
+          {[
+            {
+              value: 'light',
+              label: '浅色',
+              desc: '云白纸面',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                </svg>
+              ),
+            },
+            {
+              value: 'system',
+              label: '跟随系统',
+              desc: '自动深浅切换',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <rect x="3" y="4" width="18" height="12" rx="2" />
+                  <path d="M8 20h8M12 16v4" />
+                </svg>
+              ),
+            },
+            {
+              value: 'dark',
+              label: '深色',
+              desc: '深空极光',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
+                </svg>
+              ),
+            },
+          ].map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              role="radio"
+              aria-checked={theme === t.value}
+              onClick={() => handleTheme(t.value)}
+              className={`flex min-w-[120px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
+                theme === t.value
+                  ? 'border-primary bg-primarySoft text-primary shadow-card1'
+                  : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
+              }`}
+            >
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ${
+                  theme === t.value ? 'border-primary bg-primary text-white' : 'border-border bg-panel text-muted'
+                }`}
+              >
+                {t.icon}
+              </span>
+              <span>
+                <span className="block font-medium">{t.label}</span>
+                <span className="block text-xs opacity-75">{t.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* 卡片 1：回收站设置 */}
-      <section className="space-y-4 rounded-xl border border-border bg-panel p-5">
+      <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">
         <h2 className="text-base font-medium text-gold">回收站设置</h2>
         <p className="text-sm text-muted">
           卦例从卦例库删除后进入回收站，超过保留天数将在下次进入回收站时自动彻底清理。
@@ -250,8 +406,70 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* 卡片 2：数据备份 */}
-      <section className="space-y-4 rounded-xl border border-border bg-panel p-5">
+      {/* 卡片 2：盘面选项（功能三：纳干；v0.2 功能 B：盘面标记 11 开关） */}
+      <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+        <h2 className="text-base font-medium text-gold">盘面选项</h2>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={nagan}
+            onChange={(e) => handleNagan(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-gold"
+          />
+          <span className="text-sm">
+            <span className="text-text">纳干显示</span>
+            <span className="mt-0.5 block text-xs text-muted">
+              开启后，新起卦的盘面在爻地支前显示天干（八宫纳甲，如「甲寅木」）。不影响已保存卦例（旧快照无天干字段）。
+            </span>
+          </span>
+        </label>
+
+        {/* 盘面标记（v0.2 功能 B）：默认全关；开启后返回排盘页重新起卦/恢复即时展示 */}
+        <div className="space-y-3 border-t border-border pt-3">
+          <div className="text-sm">
+            <span className="text-text">盘面标记</span>
+            <span className="mt-0.5 block text-xs text-muted">
+              开启后，返回排盘页重新起卦或恢复会话时，盘面爻行即时展示对应标记（旧卦例快照无标记字段时自动跳过）。全部默认关闭。
+            </span>
+          </div>
+          {MARKER_DEFS.map((d) => (
+            <label key={d.key} className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={!!markers[d.key]}
+                onChange={(e) => handleMarkerToggle(d.key, e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-gold"
+              />
+              <span className="text-sm">
+                <span className="text-text">{d.label}</span>
+                <span className="mt-0.5 block text-xs text-muted">{d.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {/* 卡片 2.5：保存设置（v0.10 #6：重名保存提醒开关） */}
+      <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+        <h2 className="text-base font-medium text-gold">保存设置</h2>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={remindDup}
+            onChange={(e) => handleRemindDup(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-gold"
+          />
+          <span className="text-sm">
+            <span className="text-text">重名保存提醒</span>
+            <span className="mt-0.5 block text-xs text-muted">
+              开启后，在排盘页保存卦例时若卦题与既有卦例重名，会弹窗确认（可改为直接保存）；关闭后总是直接保存，不再提醒。
+            </span>
+          </span>
+        </label>
+      </section>
+
+      {/* 卡片 3：数据备份 */}
+      <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">
         <h2 className="text-base font-medium text-gold">数据备份</h2>
         <p className="text-sm text-muted">
           备份包含全部卦例（含回收站中的，保留删除标记）、标签与设置，保存为 JSON 文件，可随时导入恢复。
@@ -285,7 +503,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 卡片 3：关于 */}
-      <section className="space-y-3 rounded-xl border border-border bg-panel p-5">
+      <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
         <h2 className="text-base font-medium text-gold">关于</h2>
         <div className="space-y-1 text-sm">
           <p>

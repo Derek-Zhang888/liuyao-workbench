@@ -1,11 +1,18 @@
 /**
- * 统计纯函数（Task 11）
+ * 统计纯函数（Task 11 / v0.2 功能 H）
  *
  * computeStats(guashiList) → 总览 + 三维度对错计数与正确率
  *   - total/fed/unfed：总数 / 已反馈 / 未反馈
+ *   - pending：待占断（jixiong 未选，'' 或缺失）计数
  *   - 仅统计 status='已反馈' 的卦例；各维度按 '对'/'错' 计数，
  *     ''（未记录）与 '留空' 均不计入（不摊薄正确率）
  *   - rate = ok / (ok + bad)；该维度无对错数据时为 null（UI 显示"暂无数据"）
+ *
+ * v0.10 改进建8 #2 新口径（与卦例库筛选/统计页跳转三端一致）：
+ *   待占断 pending = jixiong 未选（'' 或缺失）
+ *   未反馈 unfed  = jixiong 非空 且 status 未反馈（已断未反馈）
+ *   已反馈 fed    = status 已反馈
+ *   （旧口径 unfed = total - fed 会把待占断混入未反馈，已废弃）
  *
  * wrongDims(guashi) → 各维度是否"错"（错题本筛选用）
  */
@@ -29,7 +36,7 @@ function dimCount(list, field) {
 /**
  * 统计卦例列表（纯函数，不改动入参）
  * @param {Array<object>} guashiList 卦例记录列表
- * @returns {{total:number, fed:number, unfed:number,
+ * @returns {{total:number, fed:number, unfed:number, pending:number,
  *   jxOk:number, jxBad:number, jxRate:(number|null),
  *   yqOk:number, yqBad:number, yqRate:(number|null),
  *   fwOk:number, fwBad:number, fwRate:(number|null)}}
@@ -39,6 +46,9 @@ export function computeStats(guashiList = []) {
   const total = list.length
   const fedList = list.filter((g) => g?.status === '已反馈')
   const fed = fedList.length
+  // v0.10 改进建8 #2 新口径：待占断 = jixiong 未选；未反馈 = jixiong 非空且 status 未反馈
+  const pending = list.filter((g) => (g?.jixiong ?? '') === '').length
+  const unfed = list.filter((g) => (g?.jixiong ?? '') !== '' && g?.status === '未反馈').length
 
   const jx = dimCount(fedList, 'jixiongOk')
   const yq = dimCount(fedList, 'yingqiOk')
@@ -47,7 +57,8 @@ export function computeStats(guashiList = []) {
   return {
     total,
     fed,
-    unfed: total - fed,
+    unfed,
+    pending, // v0.2 功能 H：待占断（jixiong 未选）
     jxOk: jx.ok,
     jxBad: jx.bad,
     jxRate: jx.rate,

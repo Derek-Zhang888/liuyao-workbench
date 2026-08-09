@@ -332,5 +332,5 @@ export const QIGUA_METHODS = [
   { id: 'number', name: '数字卦', desc: '输入三个正整数成卦，method=1 用第2+第3数取下卦，method=2 用第2数取下卦' },
   { id: 'baoshu', name: '报数卦', desc: '报 2-8 位数字：前两位为上下卦数，后几位为动爻编号' },
   { id: 'time', name: '时间卦', desc: '以农历年支、月、日、时辰序起卦（年月日时法）' },
-  { id: 'computer', name: '电脑卦', desc: '随机生成六爻（含动爻），由 randomFn 驱动，默认 Math.random' },
+  { id: 'computer', name: '电脑卦', desc: '随机生成六爻（含动爻）' },
 ];

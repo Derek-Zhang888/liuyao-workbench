@@ -83,11 +83,13 @@ export async function getGuashi(id) {
  * @param {{status?: string, tag?: string, keyword?: string, deleted?: boolean}} opts
  *   deleted: false=正常列表（默认），true=回收站
  *   status:  精确匹配；tag: 数组包含；keyword: title 或 duanyu 包含（简单 includes）
- * 返回按 id 倒序（最新在前）
+ * 返回按更新时间倒序（v0.10 #2：updatedAt 优先，旧记录无 updatedAt 回退 createdAt/id；
+ * 时间戳相同时回退 id 倒序，保证「最新在前」确定有序）
  */
 export async function listGuashi({ status, tag, keyword, deleted = false } = {}) {
   const db = await openDB();
   const all = await reqToPromise(db.transaction('guashi').objectStore('guashi').getAll());
+  const tsOf = (r) => r.updatedAt ?? r.createdAt ?? 0;
   return all
     .filter((r) => !!r.deleted === !!deleted)
     .filter((r) => (status ? r.status === status : true))
@@ -97,7 +99,7 @@ export async function listGuashi({ status, tag, keyword, deleted = false } = {})
       const kw = String(keyword);
       return (r.title ?? '').includes(kw) || (r.duanyu ?? '').includes(kw);
     })
-    .sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+    .sort((a, b) => (tsOf(b) - tsOf(a)) || (b.id ?? 0) - (a.id ?? 0));
 }
 
 /**

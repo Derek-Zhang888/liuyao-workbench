@@ -5,7 +5,7 @@
 import { openDB, reqToPromise } from './index.js';
 
 /** 内置默认值：未在库中存储时返回 */
-const DEFAULTS = { recycleDays: 30 };
+const DEFAULTS = { recycleDays: 30, 'remind-duplicate-title': true };
 
 /** 读取设置值；无存储时返回默认值（无默认返回 undefined） */
 export async function getSetting(key) {

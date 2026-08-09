@@ -5,7 +5,7 @@
  * 纳音名与五行按纳音五行映射 WUXING_COLOR 配色；表格横向滚动适配手机。
  */
 import { Fragment } from 'react'
-import { NAYIN_60, NAYIN_XUN } from '../../data/helpData.js'
+import { NAYIN_60, NAYIN_XUN, NAYIN_XUN_KONG } from '../../data/helpData.js'
 import { WUXING_COLOR } from '../../engine/paipan.js'
 
 const WUXING_ORDER = ['木', '火', '土', '金', '水']
@@ -14,7 +14,7 @@ export default function NayinPage() {
   return (
     <div className="space-y-4">
       {/* 说明 + 五行图例 */}
-      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+      <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5">
         <h2 className="mb-1 text-base font-medium text-gold">六十甲子纳音</h2>
         <p className="text-sm leading-relaxed text-muted">
           干支组合共六十组，两两一组纳音相同（如甲子、乙丑同属海中金）。纳音五行常用于取象与旺衰参考。
@@ -33,7 +33,7 @@ export default function NayinPage() {
       </section>
 
       {/* 纳音表 */}
-      <section className="overflow-hidden rounded-xl border border-border bg-panel">
+      <section className="overflow-hidden card rounded-xl border border-border bg-panel">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-sm">
             <thead>
@@ -46,17 +46,18 @@ export default function NayinPage() {
             <tbody>
               {NAYIN_60.map((n, i) => {
                 const xun = NAYIN_XUN[Math.floor(i / 10)]
+                const kong = NAYIN_XUN_KONG[Math.floor(i / 10)]
                 const first = i % 10 === 0
                 return (
                   <Fragment key={n.gz}>
                     {first && (
                       <tr className="border-y border-border bg-black/30">
                         <td colSpan={3} className="px-4 py-1.5 text-xs text-gold">
-                          {xun}
+                          {`${xun}（${kong}空）`}
                         </td>
                       </tr>
                     )}
-                    <tr className="border-b border-border/60 transition-colors last:border-0 hover:bg-goldSoft">
+                    <tr className="border-b border-borderDim transition-colors last:border-0 hover:bg-goldSoft">
                       <td className="px-4 py-1.5 text-text">{n.gz}</td>
                       <td className="px-4 py-1.5 font-medium" style={{ color: WUXING_COLOR[n.wuxing] }}>
                         {n.nayin}

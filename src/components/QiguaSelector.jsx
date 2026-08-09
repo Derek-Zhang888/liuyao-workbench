@@ -30,6 +30,7 @@ import {
   qiguaFromRandom,
 } from '../engine/qigua.js'
 import { toLunar, fromLunar } from '../engine/ganzhi.js'
+import TrueSolarPanel from './TrueSolarPanel.jsx'
 
 /** 起卦区输入持久化：切辅助工具页后返回不丢失，仅重置键清空。 */
 const INPUT_SESSION_KEY = 'liuyao-qigua-input-state'
@@ -373,7 +374,7 @@ export default function QiguaSelector({ onStart }) {
   }
 
   return (
-    <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+    <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-medium text-gold">起卦</h2>
         <p className="text-xs text-muted">{meta.desc}</p>
@@ -403,7 +404,7 @@ export default function QiguaSelector({ onStart }) {
               type="datetime-local"
               value={dt}
               onChange={(e) => setDt(e.target.value)}
-              className={`${inputCls} w-full max-w-xs [color-scheme:dark]`}
+              className={`${inputCls} w-full max-w-xs [color-scheme:inherit]`}
             />
             <span className="text-xs text-muted">默认当前时刻，可指定任意公历日期时间</span>
           </div>
@@ -453,12 +454,16 @@ export default function QiguaSelector({ onStart }) {
               type="time"
               value={lunar.hm}
               onChange={(e) => setLunar({ ...lunar, hm: e.target.value })}
-              className={`${inputCls} w-28 [color-scheme:dark]`}
+              className={`${inputCls} w-28 [color-scheme:inherit]`}
             />
             <span className="w-full text-xs text-muted">农历日期将换算为公历后排盘（1900-2100 年）</span>
           </div>
         )}
       </div>
+
+      {/* 真太阳时校准（开关 + 城市配置，自包含组件，持久化到 IndexedDB）：
+          放在起卦时间输入区旁，起卦前可直接切换/配置 */}
+      <TrueSolarPanel className="mb-4" />
 
       {/* 方式 Tab */}
       <div className="mb-4 flex flex-wrap gap-1.5">
@@ -651,7 +656,7 @@ export default function QiguaSelector({ onStart }) {
         <button
           type="button"
           onClick={doQiGua}
-          className="rounded-md bg-gold px-7 py-2 text-sm font-medium text-black transition-colors hover:opacity-90"
+          className="btn-shimmer rounded-md px-7 py-2 text-sm font-medium transition-colors"
         >
           起卦
         </button>

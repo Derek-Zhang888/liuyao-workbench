@@ -13,18 +13,19 @@ function g(overrides = {}) {
 }
 
 describe('computeStats 混合数据', () => {
-  test('已反馈+未反馈混合：计数与三维度正确率正确', () => {
+  test('已反馈+未反馈混合：计数与三维度正确率正确（v0.10 改进建8 #2 新口径）', () => {
     const list = [
-      g({ status: '已反馈', jixiongOk: '对', yingqiOk: '对', fangweiOk: '对' }),
-      g({ status: '已反馈', jixiongOk: '错', yingqiOk: '错', fangweiOk: '' }),
-      g({ status: '已反馈', jixiongOk: '对', yingqiOk: '', fangweiOk: '错' }),
-      g({ status: '未反馈' }),
-      g({ status: '未反馈' }),
+      g({ status: '已反馈', jixiong: '吉', jixiongOk: '对', yingqiOk: '对', fangweiOk: '对' }),
+      g({ status: '已反馈', jixiong: '凶', jixiongOk: '错', yingqiOk: '错', fangweiOk: '' }),
+      g({ status: '已反馈', jixiong: '吉', jixiongOk: '对', yingqiOk: '', fangweiOk: '错' }),
+      g({ status: '未反馈', jixiong: '吉' }), // 已断未反馈
+      g({ status: '未反馈' }), // 待占断（未选吉凶）
     ]
     const s = computeStats(list)
     expect(s.total).toBe(5)
     expect(s.fed).toBe(3)
-    expect(s.unfed).toBe(2)
+    expect(s.unfed).toBe(1) // 仅 jixiong 非空且未反馈
+    expect(s.pending).toBe(1) // 仅 jixiong 未选
     // 吉凶：对2 错1 → 2/3
     expect(s.jxOk).toBe(2)
     expect(s.jxBad).toBe(1)
@@ -37,6 +38,49 @@ describe('computeStats 混合数据', () => {
     expect(s.fwOk).toBe(1)
     expect(s.fwBad).toBe(1)
     expect(s.fwRate).toBe(0.5)
+  })
+
+  test('待占断计数（v0.2 功能 H）：jixiong 未选（空字符串或缺失）计入 pending', () => {
+    const list = [
+      g({ jixiong: '' }), // 待占断
+      g({ jixiong: '吉' }),
+      g({ jixiong: '凶' }),
+      { id: 1 }, // 脏记录：jixiong 缺失 → 待占断
+    ]
+    const s = computeStats(list)
+    expect(s.pending).toBe(2)
+    expect(s.unfed).toBe(2) // 吉/凶 且 status 未反馈 → 已断未反馈
+  })
+
+  test('v0.10 改进建8 #2：已反馈但 jixiong 未选 → 只计 fed 与 pending（不混入 unfed）', () => {
+    const s = computeStats([
+      g({ status: '已反馈', jixiong: '', jixiongOk: '对' }),
+      g({ status: '未反馈', jixiong: '' }),
+    ])
+    expect(s.fed).toBe(1)
+    expect(s.unfed).toBe(0) // 两条 jixiong 均为空 → 都不算「未反馈」
+    expect(s.pending).toBe(2)
+  })
+
+  test('v0.10 改进建8 #2 三态互斥：待占断/未反馈/已反馈互不重叠且总和=总数', () => {
+    const list = [
+      g({ status: '已反馈', jixiong: '吉', jixiongOk: '对' }),
+      g({ status: '未反馈', jixiong: '凶' }), // 已断未反馈
+      g({ status: '未反馈' }), // 待占断（未选吉凶）
+      g({ status: '未反馈', jixiong: '平' }),
+    ]
+    const s = computeStats(list)
+    expect(s.fed).toBe(1)
+    expect(s.unfed).toBe(2)
+    expect(s.pending).toBe(1)
+    expect(s.fed + s.unfed + s.pending).toBe(4)
+    expect(s.total).toBe(4)
+  })
+
+  test('空列表 pending=0 / unfed=0', () => {
+    const s = computeStats([])
+    expect(s.pending).toBe(0)
+    expect(s.unfed).toBe(0)
   })
 
   test('未反馈卦例不参与任何维度计数', () => {

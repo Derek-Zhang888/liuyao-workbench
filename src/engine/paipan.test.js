@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { paipan, WUXING_COLOR } from './paipan';
+import { paipan, WUXING_COLOR, naganGan, NAGAN_GAN, TRIGRAM_LINES, yongShenHit, yongShenHitFushen, guashenBedroom } from './paipan';
+import { computePanMarkers } from './panMarkers.js';
+import { GUA_64 } from './guaTable';
 import { toLunar } from './ganzhi';
 
 /**
@@ -61,18 +63,18 @@ describe('paipan 盘面生成器', () => {
     expect(r.yao.filter((y) => y.fushen !== null).length).toBe(1);
   });
 
-  test('旺衰：2026-08-04 月建未土 vs 乾为天（旺/相/休/囚/死）', () => {
+  test('旺衰（v0.10 标准口径）：2026-08-04 月建未土 vs 乾为天', () => {
     const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
     expect(r.yuejian).toBe('未'); // 月建未土
-    // 初→上：子水(月建克=囚) 寅木(克月建=死) 辰土(同=旺) 午火(生月建=休) 申金(月建生=相) 戌土(旺)
-    expect(r.yao.map((y) => y.wangshuai)).toEqual(['囚', '死', '旺', '休', '相', '旺']);
+    // 初→上：子水(土克水=月建克爻=死) 寅木(木克土=爻克月建=囚) 辰土(同=旺) 午火(生月建=休) 申金(月建生=相) 戌土(旺)
+    expect(r.yao.map((y) => y.wangshuai)).toEqual(['死', '囚', '旺', '休', '相', '旺']);
   });
 
-  test('旺衰：2024-02-10 月建寅木 vs 坤为地（含死）', () => {
+  test('旺衰（v0.10 标准口径）：2024-02-10 月建寅木 vs 坤为地', () => {
     const r = paipan({ method: 'qian', params: { lines: '222222', dong: [] }, date: new Date(2024, 1, 10) });
     expect(r.yuejian).toBe('寅'); // 正月建寅
-    // 初→上：未土(木克=囚) 巳火(月建生=相) 卯木(同=旺) 丑土(囚) 亥水(生月建=休) 酉金(克月建=死)
-    expect(r.yao.map((y) => y.wangshuai)).toEqual(['囚', '相', '旺', '囚', '休', '死']);
+    // 初→上：未土(木克土=月建克爻=死) 巳火(月建生=相) 卯木(同=旺) 丑土(死) 亥水(生月建=休) 酉金(金克木=爻克月建=囚)
+    expect(r.yao.map((y) => y.wangshuai)).toEqual(['死', '相', '旺', '死', '休', '囚']);
   });
 
   test('爻结构：六亲解析/爻画/动爻标记（天火同人 二爻动）', () => {
@@ -100,6 +102,37 @@ describe('paipan 盘面生成器', () => {
     const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
     expect(r.guashen).toBe('戌'); // 简报确认"乾卦身起戌"
     expect(r.shashen).toBeNull(); // 测试版暂无煞神（神煞已按爻展示）
+  });
+
+  test('v0.10 改进建7 #4 香闺/床帐全地支：乾为天卦身巳火→香闺=金全部[申,酉]、床帐=土全部[丑,辰,未,戌]（十二支序）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
+    expect(r.guashenPrecise).toBe('巳');
+    // 不再扫描爻：按卦身五行 所克=金→申酉、所生=土→丑辰未戌（十二支顺序，天然无重复）
+    expect(r.xianggui).toEqual([{ zhi: '申' }, { zhi: '酉' }]);
+    expect(r.chuangzhang).toEqual([{ zhi: '丑' }, { zhi: '辰' }, { zhi: '未' }, { zhi: '戌' }]);
+    // 任意卦：结构与只含 zhi（不带五行字）
+    const r2 = paipan({ method: 'qian', params: { lines: '222222', dong: [] }, date: new Date(2026, 7, 4) });
+    expect(Array.isArray(r2.xianggui)).toBe(true);
+    expect(Array.isArray(r2.chuangzhang)).toBe(true);
+    for (const item of [...r2.xianggui, ...r2.chuangzhang]) {
+      expect(item).toHaveProperty('zhi');
+      expect(item.wuxing).toBeUndefined();
+    }
+  });
+
+  test('v0.10 改进建7 #4 guashenBedroom 纯五行→地支映射（各五行样例）', () => {
+    const cases = [
+      ['子', { xianggui: [{ zhi: '巳' }, { zhi: '午' }], chuangzhang: [{ zhi: '寅' }, { zhi: '卯' }] }], // 水克火、水生木
+      ['寅', { xianggui: [{ zhi: '丑' }, { zhi: '辰' }, { zhi: '未' }, { zhi: '戌' }], chuangzhang: [{ zhi: '巳' }, { zhi: '午' }] }], // 木克土、木生火
+      ['午', { xianggui: [{ zhi: '申' }, { zhi: '酉' }], chuangzhang: [{ zhi: '丑' }, { zhi: '辰' }, { zhi: '未' }, { zhi: '戌' }] }], // 火克金、火生土
+      ['申', { xianggui: [{ zhi: '寅' }, { zhi: '卯' }], chuangzhang: [{ zhi: '子' }, { zhi: '亥' }] }], // 金克木、金生水（十二支序：子在亥前）
+    ];
+    const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
+    for (const [zhi, want] of cases) {
+      expect(guashenBedroom(zhi, r.yao)).toEqual(want);
+    }
+    // 非法卦身 → 空数组
+    expect(guashenBedroom('', r.yao)).toEqual({ xianggui: [], chuangzhang: [] });
   });
 
   test('新历/农历日期与神煞（2026-08-04 庚戌日）', () => {
@@ -179,5 +212,228 @@ describe('paipan 盘面生成器', () => {
     expect(() => paipan({ method: 'nope', params: {}, date: new Date(2026, 7, 4) })).toThrow(RangeError);
     expect(() => paipan({ method: 'number', params: { n1: 0, n2: 1, n3: 1 }, date: new Date(2026, 7, 4) })).not.toThrow(); // 0 现为合法输入（余数按 8/6 处理）
     expect(() => paipan({ method: 'qian', params: { lines: '111111' } })).toThrow(TypeError);
+  });
+});
+
+describe('纳干（功能三：八宫纳甲）', () => {
+  test('默认关闭：yao 无 gan 字段，pan.nagan 省略（旧快照兼容）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111111' }, date: new Date(2026, 7, 4) });
+    expect(r.yao[0].gan).toBeUndefined();
+    expect(r.nagan).toBeUndefined();
+  });
+
+  test('乾宫：内卦甲、外卦壬（初二三爻甲，四五六爻壬）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111111' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.gong).toBe('乾');
+    expect(r.nagan).toBe(true);
+    expect(r.yao.map((y) => y.gan)).toEqual(['甲', '甲', '甲', '壬', '壬', '壬']);
+    expect(r.yao[0].zhi).toBe('子'); // 甲子水（初爻）
+    expect(r.yao[3].zhi).toBe('午'); // 壬午火（四爻）
+  });
+
+  test('坤宫：内卦乙、外卦癸', () => {
+    const r = paipan({ method: 'qian', params: { lines: '222222' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.gong).toBe('坤');
+    expect(r.yao.map((y) => y.gan)).toEqual(['乙', '乙', '乙', '癸', '癸', '癸']);
+  });
+
+  test('八宫抽查：震庚 / 巽辛 / 坎戊 / 离己 / 艮丙 / 兑丁（内外同干）', () => {
+    expect(NAGAN_GAN).toEqual({
+      乾: { nei: '甲', wai: '壬' }, 坤: { nei: '乙', wai: '癸' },
+      震: { nei: '庚', wai: '庚' }, 巽: { nei: '辛', wai: '辛' },
+      坎: { nei: '戊', wai: '戊' }, 离: { nei: '己', wai: '己' },
+      艮: { nei: '丙', wai: '丙' }, 兑: { nei: '丁', wai: '丁' },
+    });
+    // 兑宫实卦验证：兑为泽 112112 → 内丁外丁
+    const dui = paipan({ method: 'qian', params: { lines: '112112' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(dui.ben.gong).toBe('兑');
+    expect(dui.yao.map((y) => y.gan)).toEqual(['丁', '丁', '丁', '丁', '丁', '丁']);
+  });
+
+  test('离宫实卦验证：离为火 121121 → 内己外己', () => {
+    const li = paipan({ method: 'qian', params: { lines: '121121' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(li.ben.gong).toBe('离');
+    expect(li.yao.map((y) => y.gan)).toEqual(['己', '己', '己', '己', '己', '己']);
+  });
+
+  test('naganGan 边界：非法宫/索引返回 null', () => {
+    expect(naganGan('乾', 6)).toBeNull();
+    expect(naganGan('乾', -1)).toBeNull();
+    expect(naganGan('X', 0)).toBeNull();
+  });
+
+  // ---- v0.10 #8：纳干按上下经卦各自纳甲（修复混合卦内外干配错）----
+  test('乾为天（上乾下乾）→ 甲子甲寅甲辰 壬午壬申壬戌（标准纳甲）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111111' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.yao.map((y) => `${y.gan}${y.zhi}`)).toEqual(['甲子', '甲寅', '甲辰', '壬午', '壬申', '壬戌']);
+  });
+
+  test('天风姤（上乾下巽）→ 辛丑辛亥辛酉 壬午壬申壬戌（旧实现会误配为甲丑）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '211111' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.name).toBe('天风姤');
+    expect(r.yao.map((y) => `${y.gan}${y.zhi}`)).toEqual(['辛丑', '辛亥', '辛酉', '壬午', '壬申', '壬戌']);
+  });
+
+  test('风天小畜（上巽下乾）→ 甲子甲寅甲辰 辛未辛巳辛卯', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111211' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.name).toBe('风天小畜');
+    expect(r.yao.map((y) => `${y.gan}${y.zhi}`)).toEqual(['甲子', '甲寅', '甲辰', '辛未', '辛巳', '辛卯']);
+  });
+
+  test('火地晋（上离下坤）→ 乙未乙巳乙卯 己酉己未己巳', () => {
+    const r = paipan({ method: 'qian', params: { lines: '222121' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.name).toBe('火地晋');
+    expect(r.yao.map((y) => `${y.gan}${y.zhi}`)).toEqual(['乙未', '乙巳', '乙卯', '己酉', '己未', '己巳']);
+  });
+
+  test('雷山小过（上震下艮）→ 丙辰丙午丙申 庚午庚申庚戌（震内外同庚）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '221122' }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.name).toBe('雷山小过');
+    expect(r.yao.map((y) => `${y.gan}${y.zhi}`)).toEqual(['丙辰', '丙午', '丙申', '庚午', '庚申', '庚戌']);
+  });
+
+  test('64 卦 × 6 爻：全部爻位的纳干与「经卦推导」自洽（每卦下卦前3位、上卦后3位）', () => {
+    for (const g of GUA_64) {
+      const lower = g.lines.slice(0, 3);
+      const upper = g.lines.slice(3, 6);
+      const lowerGua = TRIGRAM_LINES[lower];
+      const upperGua = TRIGRAM_LINES[upper];
+      expect(lowerGua, `${g.name} 下卦 ${lower}`).toBeTruthy();
+      expect(upperGua, `${g.name} 上卦 ${upper}`).toBeTruthy();
+      for (let i = 0; i < 6; i++) {
+        const gan = naganGan(g.gong, i, g.lines);
+        // 初二三爻用下卦内干，四五六爻用上卦外干
+        const want = i < 3
+          ? NAGAN_GAN[lowerGua].nei
+          : NAGAN_GAN[upperGua].wai;
+        expect(gan, `${g.name} 第${i + 1}爻`).toBe(want);
+      }
+    }
+  });
+
+  test('v0.10 改进建7 #5：开启纳干后变卦也烘焙 gan（按变卦上下经卦纳甲）', () => {
+    // 乾为天 初爻动 → 天风姤（下巽上乾）：变卦天干 辛辛辛壬壬壬
+    const r = paipan({ method: 'qian', params: { lines: '111111', dong: [0] }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r.ben.name).toBe('乾为天');
+    expect(r.bian.name).toBe('天风姤');
+    expect(r.bian.gan).toEqual(['辛', '辛', '辛', '壬', '壬', '壬']);
+    // 天风姤 初爻动 → 乾为天（下乾上乾）：变卦天干 甲甲甲壬壬壬
+    const r2 = paipan({ method: 'qian', params: { lines: '211111', dong: [0] }, date: new Date(2026, 7, 4), nagan: true });
+    expect(r2.bian.name).toBe('乾为天');
+    expect(r2.bian.gan).toEqual(['甲', '甲', '甲', '壬', '壬', '壬']);
+  });
+
+  test('v0.10 改进建7 #5：未开纳干 / 旧快照 bian.gan 缺省（向后兼容）', () => {
+    const r = paipan({ method: 'qian', params: { lines: '111111', dong: [0] }, date: new Date(2026, 7, 4) });
+    expect(r.bian.gan).toBeUndefined();
+    // 旧快照形态：手动删除 bian.gan 后 PanView/导出端留空不崩（此处验证 paipan 输出即无 gan）
+    const old = paipan({ method: 'qian', params: { lines: '111111', dong: [0] }, date: new Date(2026, 7, 4), nagan: true });
+    delete old.bian.gan;
+    expect(old.bian.gan).toBeUndefined();
+  });
+});
+
+describe('v0.10 改进建7 #8：化进化退补齐土支（用户实例：天泽履上爻动→化退）', () => {
+  test('天泽履上爻戌土动 → 兑为泽上爻未土 = 化退（引擎表：天泽履 112111 上爻翻转 = 兑为泽 112112）', () => {
+    const r = paipan({
+      method: 'qian', params: { lines: '112111', dong: [5] }, date: new Date(2026, 7, 4),
+      dizhi: true, markers: { 'marker-jintui-fanfuyin': true },
+    });
+    // 天泽履六爻（初→上）丁巳 丁卯 丁丑 壬午 壬申 壬戌；上爻戌土动
+    expect(r.ben.name).toBe('天泽履');
+    expect(r.yao[5].zhi).toBe('戌');
+    expect(r.yao[5].wuxing).toBe('土');
+    expect(r.yao[5].dong).toBe(true);
+    // 变卦上爻未土（同土逆行 = 化退）；变卦六亲按本宫（艮宫土）重排 → 未土=兄
+    expect(r.bian.name).toBe('兑为泽');
+    expect(r.bian.liuqin[0]).toBe('兄未土');
+    // 盘面标记：上爻「退」（修复前漏判为无）
+    expect(r.markers.jinTui).toEqual([{ i: 5, label: '退' }]);
+    // 地支分析：化退神（戌→未）
+    expect(r.dizhiAnalysis.benBian).toContainEqual({ yaoIndex: 5, text: '化退神（戌→未）' });
+  });
+
+  test('土支化进退各环：丑→辰 进、辰→丑 退、辰→未 进、未→辰 退、未→戌 进、戌→丑 进', () => {
+    // 直接验证 JINSHEN/TUISHEN 土支（经 panMarkers 链路）：
+    const mkYao = (zhi, dong) => ({ liuqin: '父', zhi, wuxing: '土', line: 1, dong, wangshuai: '旺' });
+    const yao = [
+      { ...mkYao('丑', true) }, // 变辰 → 进
+      { ...mkYao('辰', true) }, // 变丑 → 退
+      { ...mkYao('辰', true) }, // 变未 → 进
+      { ...mkYao('未', true) }, // 变辰 → 退
+      { ...mkYao('未', true) }, // 变戌 → 进
+      { ...mkYao('戌', true) }, // 变丑 → 进
+    ];
+    const bian = { liuqin: ['父丑土', '父戌土', '父辰土', '父未土', '父丑土', '父辰土'] }; // 上→初：i0→[5]辰, i1→[4]丑, i2→[3]未, i3→[2]辰, i4→[1]戌, i5→[0]丑
+    const m = computePanMarkers({ yao, bian, markers: { 'marker-jintui-fanfuyin': true } });
+    expect(m.jinTui).toEqual([
+      { i: 0, label: '进' },
+      { i: 1, label: '退' },
+      { i: 2, label: '进' },
+      { i: 3, label: '退' },
+      { i: 4, label: '进' },
+      { i: 5, label: '进' },
+    ]);
+  });
+
+  test('防回归：震为雷 二爻动化进、兑为泽 二爻动化退（上轮用例保持）', () => {
+    const p1 = paipan({
+      method: 'qian', params: { lines: '122122', dong: [1] }, date: new Date(2026, 7, 4),
+      markers: { 'marker-jintui-fanfuyin': true },
+    });
+    expect(p1.bian.name).toBe('雷泽归妹');
+    expect(p1.markers.jinTui).toEqual([{ i: 1, label: '进' }]);
+
+    const p2 = paipan({
+      method: 'qian', params: { lines: '112112', dong: [1] }, date: new Date(2026, 7, 4),
+      markers: { 'marker-jintui-fanfuyin': true },
+    });
+    expect(p2.bian.name).toBe('泽雷随');
+    expect(p2.markers.jinTui).toEqual([{ i: 1, label: '退' }]);
+  });
+});
+
+describe('用神命中伏神（功能二：伏神高亮判定）', () => {
+  // 天风姤（211111）：二爻本卦六亲为孙亥水，伏神为财寅木（乾宫缺财寅木）
+  const gua = () =>
+    paipan({ method: 'qian', params: { lines: '211111', dong: [] }, date: new Date(2026, 7, 4) });
+
+  test('用神=伏神六亲：yongShenHitFushen true，本卦六亲不同 → yongShenHit false', () => {
+    const y = gua().yao[1];
+    expect(y.fushen).toEqual({ liuqin: '财', zhi: '寅', wuxing: '木' });
+    expect(y.liuqin).toBe('孙'); // 本卦六亲与伏神不同
+    expect(yongShenHitFushen(y, { type: 'liuqin', value: '财' })).toBe(true);
+    expect(yongShenHit(y, { type: 'liuqin', value: '财' })).toBe(false);
+  });
+
+  test('用神=伏神地支：yongShenHitFushen true，本卦地支不同 → yongShenHit false', () => {
+    const y = gua().yao[1];
+    expect(y.zhi).toBe('亥'); // 本卦地支与伏神不同
+    expect(yongShenHitFushen(y, { type: 'zhi', value: '寅' })).toBe(true);
+    expect(yongShenHit(y, { type: 'zhi', value: '寅' })).toBe(false);
+  });
+
+  test('用神不匹配：六亲/地支均 false', () => {
+    const y = gua().yao[1];
+    expect(yongShenHitFushen(y, { type: 'liuqin', value: '官' })).toBe(false);
+    expect(yongShenHitFushen(y, { type: 'zhi', value: '子' })).toBe(false);
+  });
+
+  test('无伏神爻 / 未选用神 / 空爻 → false（向后兼容）', () => {
+    const r = gua();
+    expect(yongShenHitFushen(r.yao[0], { type: 'liuqin', value: '财' })).toBe(false); // yao[0].fushen null
+    expect(yongShenHitFushen(r.yao[1], null)).toBe(false); // 未选用神
+    expect(yongShenHitFushen(null, { type: 'liuqin', value: '财' })).toBe(false); // 空爻
+    expect(yongShenHitFushen({ liuqin: '孙', zhi: '亥' }, { type: 'liuqin', value: '财' })).toBe(false); // 无 fushen 字段
+  });
+
+  test('命中伏神不影响本卦爻命中：同爻本卦财命中、无伏神时互不干扰', () => {
+    // 乾为天（无伏神）二爻财寅木：本卦命中，但无伏神 → yongShenHitFushen false
+    const r = paipan({ method: 'qian', params: { lines: '111111', dong: [] }, date: new Date(2026, 7, 4) });
+    const y1 = r.yao[1];
+    expect(y1.liuqin).toBe('财');
+    expect(y1.fushen).toBeNull();
+    expect(yongShenHit(y1, { type: 'liuqin', value: '财' })).toBe(true);
+    expect(yongShenHitFushen(y1, { type: 'liuqin', value: '财' })).toBe(false);
   });
 });

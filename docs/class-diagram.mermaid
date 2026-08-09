@@ -1,0 +1,93 @@
+classDiagram
+    class PaipanPage {
+        +pan: object|null
+        +doodle: object|null
+        +doodleEnabled: boolean
+        +duan: object
+        +handleStart(r)
+        +handleSave()
+        +handleExport()
+        +handleReset()
+        +handleLoadHistory(rec)
+        +readMarkers(): object
+    }
+    class PanView {
+        +pan: object
+        +doodle: object|null
+        +doodleEnabled: boolean
+        +onDoodleToggle()
+        +renderMarkerBadges(pan.markers)
+    }
+    class DoodleBoard {
+        +enabled: boolean
+        +doodle: object|null
+        +onChange(doodle)
+        +tool: string
+        +color: string
+        +strokeWidth: number
+        +fill: boolean
+        +undo()
+        +clear()
+        +onPointerDown/Move/Up(e)
+    }
+    class DuanInput {
+        +value: object
+        +onChange(v)
+    }
+    class SettingsPage {
+        +nagan: boolean
+        +markers: object
+        +handleMarkerToggle(key, v)
+    }
+    class paipan {
+        +paipan(opts)
+        +computeGuashen(shi, shiLine)
+        +guashenBedroom(guashenZhi, yao)
+        +liuqinByWuxing(wo, zhiWx)
+        +wangshuai(yuejianZhi, wuxing)
+    }
+    class panMarkers {
+        +computePanMarkers(ctx)
+        +MARKER_KEYS
+        +MARKER_GLYPHS
+    }
+    class dizhiAnalysis {
+        +benBianLabel(benZhi, benWx, bianZhi, bianWx)
+        +yueJianLabels(zhi, wuxing, yueZhi)
+        +riChenLabels(zhi, wuxing, dong, wangshuai, riZhi)
+        +CHONG
+        +HE
+        +JINSHEN
+        +TUISHEN
+    }
+    class doodleSvg {
+        +emptyDoodle()
+        +isEmptyDoodle(d)
+        +doodleToSvg(doodle)
+        +doodleToDataUri(doodle)
+    }
+    class exportMd {
+        +guashiToMd(g)
+        +renderPan(pan)
+        +renderDoodle(doodle)
+        +renderMarkerColumn(pan)
+    }
+    class importMd {
+        +mdToGuashi(md)
+        +parseBody(body)
+        +parseDoodleSection(lines)
+    }
+
+    PaipanPage --> PanView
+    PaipanPage --> DuanInput
+    PaipanPage --> DoodleBoard : owns doodle state
+    PanView --> DoodleBoard : optional props
+    PanView --> paipan : reads pan.markers/xianggui
+    paipan --> panMarkers : computePanMarkers
+    paipan --> dizhiAnalysis : computeDizhiAnalysis
+    DoodleBoard --> doodleSvg : serialize
+    PaipanPage --> exportMd : guashiToMd(saved)
+    exportMd --> doodleSvg : doodleToDataUri
+    exportMd --> paipan : read pan.markers/xianggui
+    importMd --> doodleSvg : validate doodle JSON
+    SettingsPage --> paipan : setSetting marker-*

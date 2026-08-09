@@ -1,21 +1,284 @@
 /* ============================================================
-   六爻工作台 · 暗色专业主题
-   背景 / 面板 / 边框 / 强调色 / 文字 / 弱化
-   五行色：木 / 火 / 土 / 金 / 水
+   六爻工作台 · 玄穹主题（2026-08-09 用户拍板采用）
+   深空极光 + 玻璃 + 光标光斑（暗色为主，支持明暗双模式）
+   五行色语义与六神映射必须保留（青龙木/朱雀火/勾陈土/螣蛇土/白虎金/玄武水）
+   兼容注意：不打包字体（回退系统字体）；不用 color-mix()
+   （安卓 WebView <111 不支持）；backdrop-filter 走 @supports 降级；
+   触屏设备弱化极光（3 → 1 blob）；prefers-reduced-motion 降级
    ============================================================ */
-:root {
-  --bg: #0f1115;
-  --panel: #161a22;
-  --border: #232936;
-  --gold: #d4af37;
-  --gold-soft: rgba(212, 175, 55, 0.12);
-  --red: #c0392b;
-  --text: #e5e7eb;
-  --muted: #8b93a7;
 
-  --wuxing-mu: #22d3ee;
-  --wuxing-huo: #f87171;
-  --wuxing-tu: #facc15;
-  --wuxing-jin: #e5e7eb;
-  --wuxing-shui: #9ca3af;
+/* ---------- 浅色（玄穹 light） ---------- */
+:root {
+  --bg: #f3f5fb;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel2: rgba(255, 255, 255, 0.6);
+  --border: rgba(25, 35, 65, 0.1);
+  /* gold/red 完整色值供 SVG / 内联 style 使用；*-rgb 三元组供 tailwind opacity 修饰 */
+  --gold: #5b6be0;
+  --gold-rgb: 91 107 224;
+  --gold-soft: rgba(91, 107, 224, 0.11);
+  --red: #e4573f;
+  --red-rgb: 228 87 63;
+  --text: #161d2e;
+  --muted: #5e6b85;
+  --faint: #93a0b8;
+  --primary: #5b6be0;
+  --primary-rgb: 91 107 224;
+  --primary-soft: rgba(91, 107, 224, 0.11);
+  --accent: #0e9f8e;
+  --accent-soft: rgba(14, 159, 142, 0.1);
+  --ok: #2f9e68;
+  --bad: #e4573f;
+  --wuxing-mu: #2f9e68;
+  --wuxing-huo: #e4573f;
+  --wuxing-tu: #b98a3e;
+  --wuxing-jin: #a1932f;
+  --wuxing-shui: #3d6fcb;
+  --shadow-1: 0 1px 2px rgba(25, 35, 65, 0.06), 0 3px 10px rgba(25, 35, 65, 0.05);
+  --shadow-2: 0 8px 20px rgba(25, 35, 65, 0.1);
+  --navbg: rgba(250, 251, 254, 0.72);
+  --glass: blur(20px) saturate(1.2);
+  --aurora-1: rgba(91, 107, 224, 0.12);
+  --aurora-2: rgba(14, 159, 142, 0.08);
+  --aurora-3: rgba(228, 87, 63, 0.05);
+  --grid-line: rgba(25, 35, 65, 0.035);
+  /* 预计算（替代 color-mix）：primary 35% + border 65% */
+  --card-hover-border: rgba(48, 60, 121, 0.42);
+  /* 预计算：primary 62% + accent 38%（shimmer 主按钮渐变终点） */
+  --btn-grad-2: #3e7fc1;
+  --border-dim: rgba(25, 35, 65, 0.06);
+  --border-dim70: rgba(25, 35, 65, 0.07);
+  --panel-half: rgba(255, 255, 255, 0.41);
+  --gold-soft30: rgba(91, 107, 224, 0.033);
+  --toolbar-bg: rgba(250, 251, 254, 0.92);
+  --serif: 'Noto Serif SC', SimSun, 'Songti SC', 'STSong', serif;
+  --sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  color-scheme: light;
+}
+
+/* ---------- 暗色（玄穹 dark） ---------- */
+html.dark {
+  --bg: #070b14;
+  --panel: rgba(255, 255, 255, 0.055);
+  --panel2: rgba(255, 255, 255, 0.085);
+  --border: rgba(255, 255, 255, 0.1);
+  --gold: #6c7cf0;
+  --gold-rgb: 108 124 240;
+  --gold-soft: rgba(108, 124, 240, 0.16);
+  --red: #ff8a7a;
+  --red-rgb: 255 138 122;
+  --text: #edf1f7;
+  --muted: #8b93a7;
+  --faint: #5e6678;
+  --primary: #6c7cf0;
+  --primary-rgb: 108 124 240;
+  --primary-soft: rgba(108, 124, 240, 0.16);
+  --accent: #4ad9b8;
+  --accent-soft: rgba(74, 217, 184, 0.12);
+  --ok: #5bd99a;
+  --bad: #ff8a7a;
+  --wuxing-mu: #5bd99a;
+  --wuxing-huo: #ff8a7a;
+  --wuxing-tu: #e5b567;
+  --wuxing-jin: #e8d48a;
+  --wuxing-shui: #7fa8e8;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.3);
+  --navbg: rgba(8, 11, 20, 0.62);
+  --glass: blur(22px) saturate(1.4);
+  --aurora-1: rgba(108, 124, 240, 0.2);
+  --aurora-2: rgba(74, 217, 184, 0.11);
+  --aurora-3: rgba(255, 122, 122, 0.07);
+  --grid-line: rgba(255, 255, 255, 0.025);
+  --card-hover-border: rgba(204, 209, 250, 0.42);
+  --btn-grad-2: #5f9fdb;
+  --border-dim: rgba(255, 255, 255, 0.06);
+  --border-dim70: rgba(255, 255, 255, 0.07);
+  --panel-half: rgba(255, 255, 255, 0.0275);
+  --gold-soft30: rgba(108, 124, 240, 0.048);
+  --toolbar-bg: rgba(8, 11, 20, 0.85);
+  --serif: 'Noto Serif SC', SimSun, 'Songti SC', 'STSong', serif;
+  --sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+/* ============================================================
+   玄穹效果层
+   ============================================================ */
+
+/* ---------- 极光背景（漂移光斑） ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+  animation: drift 46s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+.aurora i:nth-child(1) {
+  width: 62vw;
+  height: 62vw;
+  left: -16vw;
+  top: -20vh;
+  background: var(--aurora-1);
+}
+.aurora i:nth-child(2) {
+  width: 52vw;
+  height: 52vw;
+  right: -14vw;
+  top: 18vh;
+  background: var(--aurora-2);
+  animation-delay: -16s;
+  animation-duration: 54s;
+}
+.aurora i:nth-child(3) {
+  width: 40vw;
+  height: 40vw;
+  left: 28vw;
+  bottom: -22vh;
+  background: var(--aurora-3);
+  animation-delay: -31s;
+  animation-duration: 60s;
+}
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(6vw, 4vh) scale(1.12); }
+  66% { transform: translate(-4vw, -3vh) scale(0.95); }
+  100% { transform: translate(3vw, -5vh) scale(1.06); }
+}
+/* 触屏（安卓 WebView）弱化极光：3 → 1 blob */
+@media (pointer: coarse) {
+  .aurora i:nth-child(2),
+  .aurora i:nth-child(3) {
+    display: none;
+  }
+}
+
+/* ---------- 细网格线背景 ---------- */
+.gridlines {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 52px 52px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, #000 30%, transparent 75%);
+}
+
+/* ---------- 玻璃（@supports 降级：不支持 backdrop-filter 时显示半透明纯色） ---------- */
+.glass {
+  background: var(--navbg);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glass {
+    -webkit-backdrop-filter: var(--glass);
+    backdrop-filter: var(--glass);
+  }
+}
+
+/* ---------- 卡片（光标光斑 + hover 浮起 + 入场） ---------- */
+.card {
+  position: relative;
+  box-shadow: var(--shadow-1);
+  transition:
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s,
+    border-color 0.25s;
+  animation: fadeUp 0.55s cubic-bezier(0, 0, 0.2, 1) both;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: radial-gradient(
+    520px circle at var(--mx, 50%) var(--my, 50%),
+    var(--primary-soft),
+    transparent 62%
+  );
+}
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--card-hover-border);
+}
+.card:hover::before {
+  opacity: 1;
+}
+.card:nth-child(2) { animation-delay: 0.09s; }
+.card:nth-child(3) { animation-delay: 0.15s; }
+.card:nth-child(4) { animation-delay: 0.21s; }
+/* 只动画 opacity：动画 fill-mode 若含 transform，会建立 containing block 捕获内部 fixed
+   元素（画板工具栏曾因此被盘面卡片接管定位），且动画 fill 的 transform:none 会覆盖
+   .card:hover 的浮起 transform——故入场位移去掉，仅淡入 */
+@keyframes fadeUp {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- shimmer 微光主按钮 ---------- */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--primary), var(--btn-grad-2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 5px 18px var(--primary-soft);
+  transform-origin: center;
+  transition:
+    filter 0.2s,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s;
+}
+.btn-shimmer:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 7px 24px var(--primary-soft);
+}
+.btn-shimmer:active {
+  transform: scale(0.96);
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 40%;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-shimmer:hover::after {
+  left: 120%;
+}
+
+/* ---------- 主题切换过渡 ---------- */
+html,
+body {
+  transition: background-color 0.35s, color 0.2s;
+}
+
+/* ---------- prefers-reduced-motion 降级 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora i,
+  .card {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
 }

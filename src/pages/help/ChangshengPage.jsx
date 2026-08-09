@@ -19,7 +19,7 @@ export default function ChangshengPage() {
   return (
     <div className="space-y-4">
       {/* 说明 */}
-      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5">
+      <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5">
         <h2 className="mb-1 text-base font-medium text-gold">十二长生</h2>
         <p className="text-sm leading-relaxed text-muted">
           十二长生是五行在十二地支上的旺衰历程，共十二位，周而复始：
@@ -33,7 +33,7 @@ export default function ChangshengPage() {
       </section>
 
       {/* 十二长生表 */}
-      <section className="overflow-hidden rounded-xl border border-border bg-panel">
+      <section className="overflow-hidden card rounded-xl border border-border bg-panel">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-center text-sm">
             <thead>
@@ -51,7 +51,7 @@ export default function ChangshengPage() {
             </thead>
             <tbody>
               {CHANGSHENG_ROWS.map((row) => (
-                <tr key={row.wuxing} className="border-b border-border/60 transition-colors last:border-0 hover:bg-goldSoft">
+                <tr key={row.wuxing} className="border-b border-borderDim transition-colors last:border-0 hover:bg-goldSoft">
                   <td className="whitespace-nowrap px-3 py-2 text-left">
                     <span className="font-medium" style={{ color: WUXING_COLOR[row.wuxing] }}>
                       {row.wuxing}

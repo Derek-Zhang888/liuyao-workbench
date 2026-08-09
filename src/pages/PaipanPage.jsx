@@ -9,16 +9,22 @@
  * 响应式（Task 14）：≥1024px 三栏（起卦 | 盘面 | 占断），
  *   ≥768px 两栏（起卦+盘面并排、占断在下），<768px 单列纵向滚动。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { paipan } from '../engine/paipan.js'
 import { QIGUA_METHODS } from '../engine/qigua.js'
+import { isEmptyDoodle } from '../engine/doodleSvg.js'
+import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { addGuashi, listGuashi } from '../db/guashiRepo.js'
+import { getSetting } from '../db/settingsRepo.js'
+import { loadTrueSolarSettings, trueSolarParam } from '../db/trueSolarSettings.js'
 import { guashiToMd } from '../md/exportMd.js'
 import QiguaSelector from '../components/QiguaSelector.jsx'
+import YongShenSelector from '../components/YongShenSelector.jsx'
 import PanView from '../components/PanView.jsx'
 import DuanInput from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
+import ConfirmDialog from '../components/ConfirmDialog.jsx'
 
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 
@@ -33,6 +39,7 @@ const EMPTY_DUAN = {
   jixiongOk: '',
   yingqiOk: '',
   fangweiOk: '',
+  background: '', // v0.2 功能 D：占断背景（旧卦例无此字段时默认空）
 }
 
 /** Date → 'YYYY-MM-DD HH:mm' */
@@ -59,6 +66,29 @@ export default function PaipanPage() {
   // 起卦区重置计数：重新起卦时 key 自增强制 QiguaSelector 重挂载（输入区状态一并清空）
   const [qiguaResetKey, setQiguaResetKey] = useState(0)
 
+  // 自定用神（功能二，v0.10 惰性持久化）：切页面保留，重新起卦/刷新清空；改变后重排盘以更新高亮与元神/忌神判定
+  const YONGSHEN_KEY = 'liuyao-yongshen' // v0.10：用神会话持久化（参照 liuyao-paipan-state 模式）
+  const [yongShen, setYongShen] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(YONGSHEN_KEY)
+      if (!raw) return null
+      const v = JSON.parse(raw)
+      return v && typeof v === 'object' ? v : null
+    } catch (_) {
+      return null
+    }
+  })
+  /** 用神变更统一入口：同步 state 与 sessionStorage（null 清除） */
+  const handleYongShenChange = (v) => {
+    setYongShen(v)
+    try {
+      if (v) sessionStorage.setItem(YONGSHEN_KEY, JSON.stringify(v))
+      else sessionStorage.removeItem(YONGSHEN_KEY)
+    } catch (_) { /* 容量不足时静默 */ }
+  }
+  // 本次排盘实际采用的真太阳时配置（重排盘时沿用，避免与起卦时刻不一致）
+  const [tsUsed, setTsUsed] = useState(null)
+
   // 占断 / 保存
   const [title, setTitle] = useState('')
   const [duan, setDuan] = useState({ ...EMPTY_DUAN })
@@ -68,9 +98,18 @@ export default function PaipanPage() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
+  // 盘面画板（v0.2 功能 A）：独立 state，绝不挂 pan（用神重排盘 setPan 会冲掉）
+  const [doodle, setDoodle] = useState(null)
+  const [doodleEnabled, setDoodleEnabled] = useState(false)
+
+  // v0.10 #6：重名保存提醒弹窗（pendingRecord 待确认记录；去改名 → 聚焦卦题输入框）
+  const [confirmDup, setConfirmDup] = useState(false)
+  const [pendingRecord, setPendingRecord] = useState(null)
+  const titleInputRef = useRef(null)
+
   // ---- 状态持久化：跨导航保留起盘结果 ----
   const SESSION_KEY = 'liuyao-paipan-state'
-const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
+  const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
 
   /** 将当前状态存入 sessionStorage（pan 变化时自动触发） */
   useEffect(() => {
@@ -79,36 +118,57 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
         sessionStorage.setItem(SESSION_KEY, JSON.stringify({
           method, params, qiguaDate: qiguaDate?.toISOString(),
           title, duan, tags, saved,
+          doodle, doodleEnabled, // v0.2 功能 A：画板跨页/刷新保留
         }))
       } catch (_) { /* 容量不足时静默失败 */ }
     }
-  }, [pan, method, params, qiguaDate, title, duan, tags, saved])
+  }, [pan, method, params, qiguaDate, title, duan, tags, saved, doodle, doodleEnabled])
 
-  /** 组件挂载时从 sessionStorage 恢复状态 */
+  /** 组件挂载时恢复状态（先读真太阳时设置，再按当前设置重排盘） */
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(SESSION_KEY)
-      if (!raw) return
-      const s = JSON.parse(raw)
-      // 仅恢复状态标记，不重新计算 pan（pan 需要重新调用 paipan）
-      if (s.method && s.params) {
-        try {
-          const restoredPan = paipan({
-            method: s.method,
-            params: s.params,
-            date: s.qiguaDate ? new Date(s.qiguaDate) : new Date(),
-          })
-          setPan(restoredPan)
-          setMethod(s.method)
-          setParams(s.params)
-          setQiguaDate(s.qiguaDate ? new Date(s.qiguaDate) : new Date())
-        } catch (_) { /* 恢复失败时静默，用户可重新起卦 */ }
-      }
-      setTitle(s.title ?? '')
-      setDuan(s.duan ? { ...EMPTY_DUAN, ...s.duan } : { ...EMPTY_DUAN })
-      setTags(Array.isArray(s.tags) ? s.tags : [])
-      setSaved(s.saved ?? null)
-    } catch (_) { /* 解析失败时静默 */ }
+    ;(async () => {
+      // 真太阳时校准设置：默认关闭；开启且有城市配置时恢复的盘面一并按真太阳时排
+      let ts = null
+      try {
+        ts = trueSolarParam(await loadTrueSolarSettings())
+      } catch (_) { /* 设置读取失败按关闭处理 */ }
+      try {
+        const raw = sessionStorage.getItem(SESSION_KEY)
+        if (!raw) return
+        const s = JSON.parse(raw)
+        // 仅恢复状态标记，不重新计算 pan（pan 需要重新调用 paipan）
+        if (s.method && s.params) {
+          try {
+            // 盘面标记 11 开关（v0.2 功能 B）：随设置，恢复的盘面一并按设置排
+            let naganOn = false
+            try {
+              naganOn = !!(await getSetting('nagan'))
+            } catch (_) { /* 设置读取失败按关闭处理 */ }
+            const restoredPan = paipan({
+              method: s.method,
+              params: s.params,
+              date: s.qiguaDate ? new Date(s.qiguaDate) : new Date(),
+              trueSolar: ts,
+              yongShen, // v0.10：用神惰性持久化（useState 初始值来自 sessionStorage）
+              nagan: naganOn,
+              dizhi: true,
+              markers: await readMarkers(), // v0.2 功能 B：盘面标记
+            })
+            setPan(restoredPan)
+            setTsUsed(ts)
+            setMethod(s.method)
+            setParams(s.params)
+            setQiguaDate(s.qiguaDate ? new Date(s.qiguaDate) : new Date())
+          } catch (_) { /* 恢复失败时静默，用户可重新起卦 */ }
+        }
+        setTitle(s.title ?? '')
+        setDuan(s.duan ? { ...EMPTY_DUAN, ...s.duan } : { ...EMPTY_DUAN })
+        setTags(Array.isArray(s.tags) ? s.tags : [])
+        setSaved(s.saved ?? null)
+        setDoodle(s.doodle ?? null) // v0.2 功能 A：画板跨页/刷新恢复
+        setDoodleEnabled(!!s.doodleEnabled)
+      } catch (_) { /* 解析失败时静默 */ }
+    })()
   }, []) // 仅挂载时执行一次
 
   /** 恢复默认（清除持久化状态并重置所有字段） */
@@ -130,11 +190,53 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
     refreshHistory()
   }, [])
 
-  /** QiguaSelector 回调：排盘并重置占断区 */
-  const handleStart = (r) => {
+  /** 读取纳干开关（功能三）：设置页关闭/读取失败均按关闭处理 */
+  const readNagan = async () => {
     try {
-      const p = paipan({ method: r.method, params: r.params, date: r.date })
+      return !!(await getSetting('nagan'))
+    } catch (_) {
+      return false
+    }
+  }
+
+  /** 读取盘面标记 11 开关（v0.2 功能 B）：设置页关闭/读取失败均按关闭处理 */
+  const readMarkers = async () => {
+    const out = {}
+    for (const k of MARKER_KEYS) {
+      try {
+        out[k] = !!(await getSetting(k))
+      } catch (_) {
+        out[k] = false
+      }
+    }
+    return out
+  }
+
+  /** QiguaSelector 回调：读取真太阳时设置 → 排盘并重置占断区 */
+  const handleStart = async (r) => {
+    try {
+      // 真太阳时校准：开启且有城市配置时传 trueSolar；开启但未配置时提示并退回北京时间
+      let ts = null
+      let tsHint = ''
+      try {
+        const s = await loadTrueSolarSettings()
+        ts = trueSolarParam(s)
+        if (s.enabled && !ts) {
+          tsHint = '真太阳时校准已开启但未配置城市，本次按北京时间排盘（请在起卦区下方配置城市或经度）'
+        }
+      } catch (_) { /* 设置读取失败按关闭处理 */ }
+      const p = paipan({
+        method: r.method,
+        params: r.params,
+        date: r.date,
+        trueSolar: ts,
+        yongShen, // 自定用神（功能二）
+        nagan: await readNagan(), // 纳干开关（功能三）
+        dizhi: true, // 地支分析（功能一）
+        markers: await readMarkers(), // 盘面标记 11 开关（v0.2 功能 B）
+      })
       setPan(p)
+      setTsUsed(ts)
       setMethod(r.method)
       setParams(r.params)
       setQiguaDate(r.date)
@@ -142,10 +244,63 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       setDuan({ ...EMPTY_DUAN })
       setTags([])
       setSaved(null)
-      setMsg('')
+      setDoodle(null) // v0.2 功能 A：新起卦清空画板
+      setDoodleEnabled(false)
+      setMsg(tsHint)
       setError('')
     } catch (e) {
       setError('排盘失败：' + e.message)
+    }
+  }
+
+  /** 用神变化 → 以相同起卦参数重排盘（同参数结果确定，不改变卦象），更新高亮与元神/忌神判定 */
+  useEffect(() => {
+    if (!pan || !method || !params || !qiguaDate) return
+    ;(async () => {
+      try {
+        const p = paipan({
+          method,
+          params,
+          date: qiguaDate,
+          trueSolar: tsUsed,
+          yongShen,
+          nagan: await readNagan(),
+          dizhi: true,
+          markers: await readMarkers(), // v0.2 功能 B：盘面标记随设置重排
+        })
+        setPan(p)
+      } catch (_) { /* 重排盘失败时保留原盘面 */ }
+    })()
+    // 仅在用神变化时重排盘（tsUsed/method/params 由起卦流程固定，读取最新闭包值）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yongShen])
+
+  /** 实际落库（重复名确认后的继续保存也走这里） */
+  const doSave = async (record) => {
+    try {
+      const savedRec = await addGuashi(record)
+      setSaved(savedRec)
+      setMsg('保存成功，可导出 md 或前往卦例库')
+      refreshHistory()
+    } catch (e) {
+      setError('保存失败：' + e.message)
+    }
+  }
+
+  /** 保存前查重（v0.10 #6）：设置「重名保存提醒」开启且同名存在时弹窗二选一 */
+  const checkDuplicate = async (title) => {
+    let remind = true
+    try {
+      remind = (await getSetting('remind-duplicate-title')) ?? true
+    } catch (_) {
+      remind = true
+    }
+    if (!remind || !title) return false
+    try {
+      const list = await listGuashi()
+      return list.some((r) => (r.title ?? '').trim() === title)
+    } catch (_) {
+      return false // 查重失败不阻断保存
     }
   }
 
@@ -154,10 +309,7 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       setError('请先起卦')
       return
     }
-    if (!duan.jixiong) {
-      setError('请选择吉凶（吉/凶必选）')
-      return
-    }
+    // v0.2 功能 H：吉凶改为非必选（未选吉凶也允许保存为「待占断」）
     if (duan.status === '已反馈' && !duan.jixiongOk) {
       setError('已反馈时请选择吉凶对错（对/错必选）')
       return
@@ -169,17 +321,19 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       method,
       params,
       panSnapshot: pan,
+      yongShen: yongShen ?? null, // v0.2 功能 I：顶层记录用神（与快照烘焙一致；旧卦例无此字段）
       ...duan,
       tags,
+      doodle: doodle && !isEmptyDoodle(doodle) ? doodle : null, // v0.2 功能 A：空涂鸦不落库
+      doodleOn: !!doodleEnabled, // v0.10 改进建7 #1：保存画板开启状态（编辑页默认联动开启）
+      updatedAt: Date.now(), // v0.10 #2：保存/编辑时写更新时间（卡片/统计按此排序显示）
     }
-    try {
-      const savedRec = await addGuashi(record)
-      setSaved(savedRec)
-      setMsg('保存成功，可导出 md 或前往卦例库')
-      refreshHistory()
-    } catch (e) {
-      setError('保存失败：' + e.message)
+    if (await checkDuplicate(record.title)) {
+      setPendingRecord(record)
+      setConfirmDup(true)
+      return
     }
+    await doSave(record)
   }
 
   const handleExport = () => {
@@ -200,16 +354,20 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
     setMsg('已导出 md 文件')
   }
 
-  /** 重新起卦：清空盘面、占断与起卦区输入 */
+  /** 重新起卦：清空盘面、占断与起卦区输入；v0.10 一并清除用神会话持久化 */
   const handleReset = () => {
     setPan(null)
     setMethod('')
     setParams(null)
     setQiguaDate(null)
+    handleYongShenChange(null) // v0.10：新起卦清除用神（state + sessionStorage）
+    setTsUsed(null)
     setTitle('')
     setDuan({ ...EMPTY_DUAN })
     setTags([])
     setSaved(null)
+    setDoodle(null) // v0.2 功能 A：画板一并清空
+    setDoodleEnabled(false)
     setMsg('')
     setError('')
     setQiguaResetKey((k) => k + 1) // 起卦区输入一并清空
@@ -227,18 +385,35 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
     setError('')
   }
 
-  /** 历史回填查看 */
-  const handleLoadHistory = (rec) => {
+  /** 历史回填查看（v0.10 #16：无快照的导入记录按 method/params 重新排盘，携带当前设置标记） */
+  const handleLoadHistory = async (rec) => {
     setError('')
     setMsg('')
-    if (!rec.panSnapshot) {
-      setError('该卦例无盘面快照，无法回填')
-      return
+    let pan = rec.panSnapshot ?? null
+    if (!pan) {
+      // md 导入记录无盘面快照：重新排盘（含标记/纳干/用神设置），失败则报错不阻断
+      try {
+        pan = paipan({
+          method: rec.method,
+          params: rec.params ?? {},
+          date: parseDate(rec.date) ?? new Date(),
+          trueSolar: tsUsed,
+          yongShen: rec.panSnapshot?.yongShen ?? rec.yongShen ?? null,
+          nagan: await readNagan(),
+          dizhi: true,
+          markers: await readMarkers(),
+        })
+      } catch (e) {
+        setError('该卦例无盘面快照，且无法按起卦参数重新排盘：' + e.message)
+        return
+      }
     }
-    setPan(rec.panSnapshot)
+    setPan(pan)
     setMethod(rec.method ?? '')
     setParams(rec.params ?? null)
     setQiguaDate(parseDate(rec.date) ?? new Date())
+    // v0.2 功能 I：回填历史时恢复自定用神（快照烘焙优先，顶层字段兜底；旧卦例无则清空）
+    handleYongShenChange(rec.panSnapshot?.yongShen ?? rec.yongShen ?? null)
     setTitle(rec.title ?? '')
     setDuan({
       duanyu: rec.duanyu ?? '',
@@ -251,33 +426,47 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       yingqiOk: rec.yingqiOk ?? '',
       fangweiOk: rec.fangweiOk ?? '',
       fangwei: rec.fangwei ?? '',
+      background: rec.background ?? '', // v0.2 功能 D：旧卦例无背景字段时默认空
     })
     setTags(Array.isArray(rec.tags) ? rec.tags : [])
     setSaved(rec)
+    setDoodle(rec.doodle ?? null) // v0.2 功能 A：回填历史涂鸦（含 md 导入还原）
+    setDoodleEnabled(false) // 回填历史默认不自动开启画板（避免覆盖层意外遮挡；编辑页按 record.doodleOn 联动见卦例库）
     setMsg('已回填历史卦例（保存将新建一条卦例）')
   }
 
   return (
-    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-      {/* 起卦区（key 变化时重挂载，重新起卦后输入区复位） */}
-      <QiguaSelector key={qiguaResetKey} onStart={handleStart} />
+    // v0.10 #15：排盘页宽度以盘面为主——lg 起卦:盘面:占断 = 5:7:5（盘面更宽），响应式不破坏移动端单列
+    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)_minmax(0,5fr)]">
+      {/* 起卦区（key 变化时重挂载，重新起卦后输入区复位）+ 用神选择器（功能二） */}
+      <div className="space-y-5">
+        <QiguaSelector key={qiguaResetKey} onStart={handleStart} />
+        <YongShenSelector value={yongShen} onChange={handleYongShenChange} />
+      </div>
 
       {/* 盘面区：md 起卦+盘面并排；lg 起卦|盘面|占断 三栏 */}
       {pan && (
         <div className="md:col-span-1 lg:col-span-1">
-          <PanView pan={pan} />
+          <PanView
+            pan={pan}
+            doodle={doodle}
+            doodleEnabled={doodleEnabled}
+            onDoodleChange={setDoodle}
+            onDoodleToggle={setDoodleEnabled}
+          />
         </div>
       )}
 
       {/* 占断区：md 横跨两列（占断在下）；lg 第三列 */}
       {pan && (
-        <section className="rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-1">
+        <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-1">
           <h2 className="mb-4 text-base font-medium text-gold">占断</h2>
 
           {/* 卦题 */}
           <div className="mb-4">
             <div className="mb-1.5 text-sm text-muted">占问内容（卦题）</div>
             <input
+              ref={titleInputRef}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="如：占测今日出行是否顺利（留空保存为「未命名卦例」）"
@@ -299,7 +488,7 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
             <button
               type="button"
               onClick={handleSave}
-              className="rounded-md bg-gold px-5 py-2 text-sm font-medium text-black transition-colors hover:opacity-90"
+              className="btn-shimmer rounded-md px-5 py-2 text-sm font-medium transition-colors"
             >
               保存卦例
             </button>
@@ -342,7 +531,7 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
       )}
 
       {/* 排盘历史 */}
-      <section className="rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-3">
+      <section className="card rounded-xl border border-border bg-panel p-4 sm:p-5 md:col-span-2 lg:col-span-full">
         <h2 className="mb-3 text-base font-medium text-gold">排盘历史（最近 20 条）</h2>
         {history.length === 0 ? (
           <p className="text-sm text-muted">暂无已保存的卦例</p>
@@ -366,6 +555,24 @@ const QIGUA_INPUT_KEY = 'liuyao-qigua-input-state'
           </ul>
         )}
       </section>
+
+      {/* v0.10 #6：重名保存提醒——① 仍要保存 ② 去改名（聚焦卦题输入框） */}
+      <ConfirmDialog
+        open={confirmDup}
+        title="卦题重名"
+        message={`已有卦例使用卦题「${pendingRecord?.title ?? ''}」。\n仍要保存将产生同名卦例；选择「去改名」回到占断区修改卦题后再保存。`}
+        confirmLabel="仍要保存"
+        cancelLabel="去改名"
+        onCancel={() => {
+          setConfirmDup(false)
+          titleInputRef.current?.focus()
+        }}
+        onConfirm={() => {
+          setConfirmDup(false)
+          const rec = pendingRecord
+          if (rec) doSave(rec)
+        }}
+      />
     </div>
   )
 }
