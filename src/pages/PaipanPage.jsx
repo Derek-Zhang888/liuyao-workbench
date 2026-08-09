@@ -19,6 +19,7 @@ import { addGuashi, listGuashi } from '../db/guashiRepo.js'
 import { getSetting } from '../db/settingsRepo.js'
 import { loadTrueSolarSettings, trueSolarParam } from '../db/trueSolarSettings.js'
 import { guashiToMd } from '../md/exportMd.js'
+import { saveExport, MD_FILTERS } from '../utils/exportHelper.js'
 import QiguaSelector from '../components/QiguaSelector.jsx'
 import YongShenSelector from '../components/YongShenSelector.jsx'
 import PanView from '../components/PanView.jsx'
@@ -336,22 +337,20 @@ export default function PaipanPage() {
     await doSave(record)
   }
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!saved) {
       setMsg('请先保存卦例再导出')
       return
     }
     const md = guashiToMd(saved)
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${(saved.title || '卦例').replace(/[\\/:*?"<>|]/g, '_')}.md`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    setMsg('已导出 md 文件')
+    const fileName = `${(saved.title || '卦例').replace(/[\\/:*?"<>|]/g, '_')}.md`
+    const r = await saveExport('md', fileName, md, 'text/markdown;charset=utf-8', MD_FILTERS)
+    if (r.ok) {
+      setMsg(r.message)
+      setError('')
+    } else {
+      setError(r.message)
+    }
   }
 
   /** 重新起卦：清空盘面、占断与起卦区输入；v0.10 一并清除用神会话持久化 */

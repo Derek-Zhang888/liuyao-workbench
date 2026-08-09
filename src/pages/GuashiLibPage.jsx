@@ -398,9 +398,10 @@ export default function GuashiLibPage() {
 
   const handleBatchExport = async () => {
     if (!selectedRecords.length) return
-    setMsg(`开始逐条导出 ${selectedRecords.length} 个 md 文件…（若浏览器拦截后续下载，请在下载提示中允许本站下载多个文件）`)
-    await downloadGuashiBatch(selectedRecords)
-    setMsg(`已导出 ${selectedRecords.length} 条 md 文件（如个别文件未下载，请允许本站下载多个文件后重试）`)
+    setMsg(`开始导出 ${selectedRecords.length} 条卦例…`)
+    const r = await downloadGuashiBatch(selectedRecords)
+    if (r && r.ok) setMsg(r.message || `已导出 ${selectedRecords.length} 条 md 文件`)
+    else setMsg(r && r.message ? r.message : `已导出 ${selectedRecords.length} 条 md 文件`)
   }
 
   const handleBatchDelete = async () => {
@@ -427,9 +428,10 @@ export default function GuashiLibPage() {
     }
   }
 
-  const handleExportOne = (g) => {
-    downloadGuashiMd(g)
-    setMsg(`已导出「${g.title || '未命名卦例'}」`)
+  const handleExportOne = async (g) => {
+    const r = await downloadGuashiMd(g)
+    if (r && r.ok) setMsg(r.message || `已导出「${g.title || '未命名卦例'}」`)
+    else setMsg(`已导出「${g.title || '未命名卦例'}」`)
   }
 
   const handleDeleteOne = async (g) => {

@@ -19,6 +19,8 @@ import { listGuashi, purgeGuashi, replaceAllGuashi } from '../db/guashiRepo.js'
 import { addTag, listTags } from '../db/tagsRepo.js'
 import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { getTheme, setTheme } from '../utils/theme.js'
+import { saveExport, JSON_FILTERS } from '../utils/exportHelper.js'
+import { isTauri, pickDirectory, setCloseBehavior } from '../utils/tauriBridge.js'
 
 /** 与 package.json 保持一致 */
 const APP_VERSION = '0.1.0'
@@ -64,6 +66,10 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [theme, setThemeSel] = useState(getTheme()) // 界面主题三选：light / system / dark
+  const [mdExportPath, setMdExportPath] = useState('') // v1.0.1：md 导出自定义路径（Tauri）
+  const [backupExportPath, setBackupExportPath] = useState('') // v1.0.1：备份导出自定义路径（Tauri）
+  const [closeBehavior, setCloseBehaviorState] = useState('tray') // v1.0.1：关闭窗口行为 tray/quit（默认托盘）
+  const [isDesktop, setIsDesktop] = useState(false) // 是否 Tauri 容器（桌面/Android）
 
   /** 刷新数据概况（卦例 / 回收站 / 标签数量） */
   const refresh = async () => {
@@ -108,6 +114,23 @@ export default function SettingsPage() {
         setRemindDup((await getSetting('remind-duplicate-title')) ?? true)
       } catch (_) {
         setRemindDup(true)
+      }
+      // v1.0.1：自定义导出路径 + 关闭窗口行为（仅 Tauri 端展示）
+      const desktop = isTauri()
+      setIsDesktop(desktop)
+      if (desktop) {
+        try {
+          const md = await getSetting('export-path-md')
+          if (md) setMdExportPath(md)
+        } catch (_) {}
+        try {
+          const bk = await getSetting('export-path-backup')
+          if (bk) setBackupExportPath(bk)
+        } catch (_) {}
+        try {
+          const cb = await getSetting('close-behavior')
+          setCloseBehaviorState(cb === 'quit' ? 'quit' : 'tray')
+        } catch (_) {}
       }
       refresh()
     })()
@@ -178,6 +201,35 @@ export default function SettingsPage() {
     }
   }
 
+  /* ---------- v1.0.1：自定义导出路径（Tauri） ---------- */
+  const handlePickDir = async (kind) => {
+    const dir = await pickDirectory(kind === 'md' ? '选择 md 导出目录' : '选择数据备份导出目录')
+    if (!dir) return
+    const key = kind === 'md' ? 'export-path-md' : 'export-path-backup'
+    try {
+      await setSetting(key, dir)
+      if (kind === 'md') setMdExportPath(dir)
+      else setBackupExportPath(dir)
+      setMsg(kind === 'md' ? `md 导出目录已设置：${dir}` : `数据备份导出目录已设置：${dir}`)
+      setError('')
+    } catch (e) {
+      setError('保存导出目录失败：' + e.message)
+    }
+  }
+
+  /* ---------- v1.0.1：关闭窗口行为（Tauri 桌面端） ---------- */
+  const handleCloseBehavior = async (v) => {
+    setCloseBehaviorState(v)
+    try {
+      await setSetting('close-behavior', v)
+      await setCloseBehavior(v === 'tray')
+      setMsg(v === 'tray' ? '已设为最小化到托盘：关闭窗口后应用在系统托盘继续运行' : '已设为直接退出：关闭窗口即退出应用')
+      setError('')
+    } catch (e) {
+      setError('保存关闭行为失败：' + e.message)
+    }
+  }
+
   /* ---------- 导出全部数据 ---------- */
   const handleExport = async () => {
     try {
@@ -195,17 +247,15 @@ export default function SettingsPage() {
         tags,
         settings,
       }
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `liuyao-backup-${ymd(Date.now())}.json`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      setMsg(`已导出备份：${payload.guashi.length} 条卦例（含回收站 ${deleted.length} 条）、${tags.length} 个标签`)
-      setError('')
+      const fileName = `liuyao-backup-${ymd(Date.now())}.json`
+      const r = await saveExport('backup', fileName, JSON.stringify(payload, null, 2), 'application/json', JSON_FILTERS)
+      if (r.ok) {
+        setMsg(`${r.message}（${payload.guashi.length} 条卦例、${tags.length} 个标签）`)
+        setError('')
+      } else {
+        setError(r.message)
+        setMsg('')
+      }
     } catch (e) {
       setError('导出失败：' + e.message)
     }
@@ -467,6 +517,116 @@ export default function SettingsPage() {
           </span>
         </label>
       </section>
+
+      {/* 卡片 2.6：自定义导出路径（v1.0.1，仅 Tauri 端） */}
+      {isDesktop && (
+        <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">
+          <h2 className="text-base font-medium text-gold">自定义导出路径</h2>
+          <p className="text-sm text-muted">
+            导出 md 文件与数据备份时保存到指定目录，导出后会提示完整路径。未设置时导出会弹出系统保存对话框。
+          </p>
+          {/* md 导出路径 */}
+          <div className="space-y-1.5">
+            <div className="text-sm text-text">md 文件导出路径</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={mdExportPath}
+                placeholder="未设置（导出时弹窗选择位置）"
+                className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => handlePickDir('md')}
+                className="rounded-md border border-gold px-4 py-1.5 text-sm text-gold transition-colors hover:bg-goldSoft"
+              >
+                {mdExportPath ? '更换目录' : '选择目录'}
+              </button>
+              {mdExportPath && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await setSetting('export-path-md', null)
+                    setMdExportPath('')
+                    setMsg('md 导出目录已清除，导出时将弹窗选择位置')
+                  }}
+                  className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
+                >
+                  清除
+                </button>
+              )}
+            </div>
+          </div>
+          {/* 备份导出路径 */}
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <div className="text-sm text-text">数据备份导出路径</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={backupExportPath}
+                placeholder="未设置（导出时弹窗选择位置）"
+                className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => handlePickDir('backup')}
+                className="rounded-md border border-gold px-4 py-1.5 text-sm text-gold transition-colors hover:bg-goldSoft"
+              >
+                {backupExportPath ? '更换目录' : '选择目录'}
+              </button>
+              {backupExportPath && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await setSetting('export-path-backup', null)
+                    setBackupExportPath('')
+                    setMsg('数据备份导出目录已清除，导出时将弹窗选择位置')
+                  }}
+                  className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
+                >
+                  清除
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 卡片 2.7：关闭窗口行为（v1.0.1，仅 Tauri 桌面端） */}
+      {isDesktop && (
+        <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+          <h2 className="text-base font-medium text-gold">关闭窗口行为</h2>
+          <p className="text-sm text-muted">
+            点击窗口关闭按钮时的行为。最小化到托盘后，可从系统托盘图标或右键菜单恢复。
+          </p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="关闭窗口行为">
+            {[
+              { value: 'tray', label: '最小化到托盘', desc: '默认：关闭后应用在后台继续运行' },
+              { value: 'quit', label: '直接退出', desc: '关闭窗口即退出应用' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={closeBehavior === o.value}
+                onClick={() => handleCloseBehavior(o.value)}
+                className={`flex min-w-[160px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
+                  closeBehavior === o.value
+                    ? 'border-primary bg-primarySoft text-primary shadow-card1'
+                    : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
+                }`}
+              >
+                <span>
+                  <span className="block font-medium">{o.label}</span>
+                  <span className="block text-xs opacity-75">{o.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 卡片 3：数据备份 */}
       <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">

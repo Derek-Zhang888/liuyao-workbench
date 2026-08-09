@@ -1,12 +1,14 @@
 /**
- * md 导出工具（Task 10 / v0.10 #11）
+ * md 导出工具（Task 10 / v0.10 #11 / v1.0.1 自定义路径）
  *
- * 单条导出：downloadGuashiMd(guashi) → 生成 Blob 并触发浏览器下载
- * 批量导出：downloadGuashiBatch(list) → 打成 zip（v0.10 #11 改进）后下载单一压缩包
+ * 单条导出：downloadGuashiMd(guashi) → 生成 md 并保存
+ * 批量导出：downloadGuashiBatch(list) → 打成 zip（v0.10 #11 改进）后保存单一压缩包
  *           Stored 模式，无压缩；自实现 zip 工具，无外部依赖
+ * v1.0.1：Tauri 端按自定义导出路径保存并提示完整路径；Web 端浏览器下载
  */
 import { guashiToMd } from '../md/exportMd.js'
 import { createZip, utf8, stamp } from './zip.js'
+import { saveExport } from './exportHelper.js'
 
 /** 安全文件名：去掉 Windows/浏览器非法字符 + 重复 → 避免 zip 内同名冲突 */
 export function safeFileName(title) {
@@ -27,35 +29,22 @@ function uniquifyNames(items) {
 }
 
 /** 下载单条卦例的 md 文件 */
-export function downloadGuashiMd(guashi) {
+export async function downloadGuashiMd(guashi) {
   const md = guashiToMd(guashi)
-  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${safeFileName(guashi.title)}.md`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  const fileName = `${safeFileName(guashi.title)}.md`
+  return saveExport('md', fileName, md, 'text/markdown;charset=utf-8', { name: 'Markdown', extensions: ['md'] })
 }
 
 /** 批量导出：把选中卦例打成 zip 后整体下载 */
-export function downloadGuashiBatch(guashiList) {
+export async function downloadGuashiBatch(guashiList) {
   if (!guashiList || guashiList.length === 0) return
   const items = uniquifyNames(
     guashiList.map((g) => ({ title: g.title, data: utf8(guashiToMd(g)) })),
   )
   const buf = createZip(items, new Date())
-  const blob = new Blob([buf], { type: 'application/zip' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
   // 文件名：卦例导出-YYYY-MM-DD HH:mm.zip（冒号在 Windows 不合法，换成 HHmm）
   const safeStamp = stamp().replace(/[: ]/g, '-')
-  a.href = url
-  a.download = `卦例导出-${safeStamp}.zip`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  const fileName = `卦例导出-${safeStamp}.zip`
+  // zip 是二进制：Tauri 端传 Uint8Array（writeFile），Web 端 Blob 下载
+  return saveExport('md', fileName, new Uint8Array(buf), 'application/zip', { name: 'ZIP', extensions: ['zip'] })
 }
