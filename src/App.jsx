@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { HashRouter, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { applyTheme, getTheme } from './utils/theme.js'
 import PaipanPage from './pages/PaipanPage.jsx'
@@ -135,6 +136,9 @@ function Shell() {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef(null)
+  const morePanelRef = useRef(null)
+  // 更多面板的 fixed 定位基准（按钮的视口矩形），null = 未打开
+  const [moreRect, setMoreRect] = useState(null)
 
   // 路由变化时收起手机版「更多」菜单
   useEffect(() => {
@@ -163,11 +167,13 @@ function Shell() {
     return () => document.removeEventListener('pointermove', onMove)
   }, [])
 
-  // 点击「更多」菜单外部任意区域时收起（手机触摸场景）
+  // 点击「更多」菜单外部任意区域时收起（手机触摸场景；面板走 portal 在 body，需单独判断）
   useEffect(() => {
     if (!moreOpen) return
     const onDown = (e) => {
-      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false)
+      const inBtn = moreRef.current && moreRef.current.contains(e.target)
+      const inPanel = morePanelRef.current && morePanelRef.current.contains(e.target)
+      if (!inBtn && !inPanel) setMoreOpen(false)
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('touchstart', onDown)
@@ -210,33 +216,45 @@ function Shell() {
             统计
           </NavLink>
 
-          {/* 更多：辅助工具 ×5 + 回收站 */}
+          {/* 更多：辅助工具 ×5 + 回收站（面板走 portal，避免被 nav 的 overflow 裁剪） */}
           <div className="relative shrink-0" ref={moreRef}>
             <button
               type="button"
-              onClick={() => setMoreOpen((v) => !v)}
+              onClick={() => {
+                const rect = moreRef.current?.getBoundingClientRect()
+                setMoreRect(rect ? { right: rect.right, top: rect.bottom } : null)
+                setMoreOpen((v) => !v)
+              }}
               className={`shrink-0 rounded-md px-3 py-1.5 text-sm transition-colors ${
                 moreOpen ? 'bg-goldSoft text-gold' : 'text-muted hover:text-text'
               }`}
             >
               更多 ▾
             </button>
-            {moreOpen && (
-              <div className="absolute right-0 top-full z-40 mt-1.5 w-44 rounded-xl border border-border bg-panel p-2 shadow-2xl">
-                {HELP_ENTRIES.map((e) => (
-                  <NavLink key={e.path} to={`/help/${e.path}`} className={moreItemClass}>
-                    {e.label}
-                  </NavLink>
-                ))}
-                <div className="my-1.5 border-t border-border" />
-                <NavLink to="/recycle" className={moreItemClass}>
-                  回收站
-                </NavLink>
-              </div>
-            )}
           </div>
         </nav>
       </header>
+
+      {moreOpen &&
+        moreRect &&
+        createPortal(
+          <div
+            ref={morePanelRef}
+            className="fixed z-50 w-44 rounded-xl border border-border bg-bg p-2 shadow-2xl"
+            style={{ right: Math.max(8, window.innerWidth - moreRect.right), top: moreRect.top + 8 }}
+          >
+            {HELP_ENTRIES.map((e) => (
+              <NavLink key={e.path} to={`/help/${e.path}`} className={moreItemClass}>
+                {e.label}
+              </NavLink>
+            ))}
+            <div className="my-1.5 border-t border-border" />
+            <NavLink to="/recycle" className={moreItemClass}>
+              回收站
+            </NavLink>
+          </div>,
+          document.body
+        )}
 
       {/* ===== 桌面版左侧导航（≥768px）：图标 + 文字纵排 ===== */}
       <aside className="glass fixed inset-y-0 left-0 z-20 hidden w-52 flex-col border-r border-border md:flex">

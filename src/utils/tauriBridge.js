@@ -23,6 +23,26 @@ export function isTauri() {
   }
 }
 
+/**
+ * 是否 Android（Tauri Android WebView；桌面 Tauri / Web 均为 false）
+ * 2026-08-09 二修：UA + platform 双保险判断，防止个别 WebView 定制 UA 漏判
+ * 导致「安卓被当成桌面」而显示桌面专属设置（曾引发关闭窗口/自定义路径混淆）
+ */
+export function isAndroid() {
+  try {
+    if (typeof navigator === 'undefined') return false
+    const ua = `${navigator.userAgent || ''} ${navigator.platform || ''}`
+    return /android/i.test(ua)
+  } catch {
+    return false
+  }
+}
+
+/** 是否 Tauri 桌面端（Windows/macOS/Linux，不含 Android） */
+export function isDesktop() {
+  return isTauri() && !isAndroid()
+}
+
 /** 通知 Rust：关闭窗口行为（true=最小化到托盘，false=直接退出） */
 export async function setCloseBehavior(toTray) {
   if (!isTauri()) return
@@ -127,12 +147,12 @@ export async function saveFileDialog(defaultName, content, filters) {
   }
 }
 
-/** 在系统文件管理器中打开目录（opener 插件）；失败返回 false */
+/** 在系统文件管理器中打开目录（Rust command：explorer/open/xdg-open）；失败返回 false */
 export async function openExportDir(dir) {
   if (!isTauri() || !dir) return false
   try {
-    const { openPath } = await import('@tauri-apps/plugin-opener')
-    await openPath(dir)
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_dir', { path: dir })
     return true
   } catch (e) {
     console.warn('openExportDir failed:', e)

@@ -20,10 +20,11 @@ import { addTag, listTags } from '../db/tagsRepo.js'
 import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { getTheme, setTheme } from '../utils/theme.js'
 import { saveExport, JSON_FILTERS } from '../utils/exportHelper.js'
-import { isTauri, pickDirectory, setCloseBehavior, openExportDir } from '../utils/tauriBridge.js'
+import { isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExportDir } from '../utils/tauriBridge.js'
+import { getDisplayMode, setDisplayMode } from '../utils/displayMode.js'
 
 /** 与 package.json 保持一致 */
-const APP_VERSION = '1.0.1'
+const APP_VERSION = '1.0.0'
 
 /** 盘面标记 11 开关定义（v0.2 功能 B）：key 与 settings 表一致，默认全关 */
 const MARKER_DEFS = [
@@ -69,7 +70,11 @@ export default function SettingsPage() {
   const [mdExportPath, setMdExportPath] = useState('') // v1.0.1：md 导出自定义路径（Tauri）
   const [backupExportPath, setBackupExportPath] = useState('') // v1.0.1：备份导出自定义路径（Tauri）
   const [closeBehavior, setCloseBehaviorState] = useState('tray') // v1.0.1：关闭窗口行为 tray/quit（默认托盘）
-  const [isDesktop, setIsDesktop] = useState(false) // 是否 Tauri 容器（桌面/Android）
+  const [isDesktopEnv, setIsDesktopEnv] = useState(false) // 是否 Tauri 桌面端（Windows/macOS/Linux，不含 Android）
+  const [isAndroidEnv, setIsAndroidEnv] = useState(false) // 是否 Android 端（2026-08-09：屏幕适配选项）
+  const [displayMode, setDisplayModeSel] = useState(() => getDisplayMode()) // 屏幕适配：full 全面屏 / notch 刘海屏（仅 Android）
+  const [lastBackup, setLastBackup] = useState(null) // v1.0.1：最近一次备份结果 {fileName, path, at, usedDefault, count, tagsCount}
+  const [pathMsg, setPathMsg] = useState(null) // v1.0.1：自定义导出路径卡片内反馈 {type:'ok'|'err', text}
 
   /** 刷新数据概况（卦例 / 回收站 / 标签数量） */
   const refresh = async () => {
@@ -115,9 +120,10 @@ export default function SettingsPage() {
       } catch (_) {
         setRemindDup(true)
       }
-      // v1.0.1：自定义导出路径 + 关闭窗口行为（仅 Tauri 端展示）
-      const desktop = isTauri()
-      setIsDesktop(desktop)
+      // v1.0.1：自定义导出路径 + 关闭窗口行为（仅 Tauri 桌面端展示；Android 无目录选择/托盘能力）
+      const desktop = isDesktop()
+      setIsDesktopEnv(desktop)
+      setIsAndroidEnv(isAndroid())
       if (desktop) {
         try {
           const md = await getSetting('export-path-md')
@@ -210,22 +216,35 @@ export default function SettingsPage() {
       await setSetting(key, dir)
       if (kind === 'md') setMdExportPath(dir)
       else setBackupExportPath(dir)
-      setMsg(kind === 'md' ? `md 导出目录已设置：${dir}` : `数据备份导出目录已设置：${dir}`)
+      setPathMsg({ type: 'ok', text: kind === 'md' ? `md 导出目录已设置：${dir}` : `数据备份导出目录已设置：${dir}` })
       setError('')
     } catch (e) {
-      setError('保存导出目录失败：' + e.message)
+      setPathMsg({ type: 'err', text: '保存导出目录失败：' + e.message })
     }
   }
 
-  /* ---------- v1.0.1：打开导出目录（opener 插件） ---------- */
+  /* ---------- v1.0.1：打开导出目录（Rust command） ---------- */
   const handleOpenDir = async (kind) => {
     const dir = kind === 'md' ? mdExportPath : backupExportPath
     if (!dir) {
-      setMsg('请先选择导出目录')
+      setPathMsg({ type: 'err', text: '请先选择导出目录' })
       return
     }
     const ok = await openExportDir(dir)
-    if (!ok) setMsg('打开目录失败：目录可能不存在或已被移动')
+    if (!ok) setPathMsg({ type: 'err', text: '打开目录失败：目录可能不存在或已被移动' })
+  }
+
+  /* ---------- v1.0.1：清除导出路径 ---------- */
+  const handleClearDir = async (kind) => {
+    try {
+      await setSetting(kind === 'md' ? 'export-path-md' : 'export-path-backup', null)
+      if (kind === 'md') setMdExportPath('')
+      else setBackupExportPath('')
+      setPathMsg({ type: 'ok', text: kind === 'md' ? 'md 导出目录已清除，导出时使用默认目录' : '数据备份导出目录已清除，导出时使用默认目录' })
+      setError('')
+    } catch (e) {
+      setPathMsg({ type: 'err', text: '清除导出目录失败：' + e.message })
+    }
   }
 
   /* ---------- v1.0.1：关闭窗口行为（Tauri 桌面端） ---------- */
@@ -239,6 +258,14 @@ export default function SettingsPage() {
     } catch (e) {
       setError('保存关闭行为失败：' + e.message)
     }
+  }
+
+  /* ---------- 2026-08-09：屏幕适配（仅 Android）全面屏/刘海屏 ---------- */
+  const handleDisplayMode = (mode) => {
+    setDisplayModeSel(mode)
+    setDisplayMode(mode)
+    setMsg(mode === 'notch' ? '已切换为刘海屏模式：应用界面避开状态栏（刘海）区域' : '已切换为全面屏模式：应用界面延伸至屏幕边缘（当前模式）')
+    setError('')
   }
 
   /* ---------- 导出全部数据 ---------- */
@@ -261,11 +288,22 @@ export default function SettingsPage() {
       const fileName = `liuyao-backup-${ymd(Date.now())}.json`
       const r = await saveExport('backup', fileName, JSON.stringify(payload, null, 2), 'application/json', JSON_FILTERS)
       if (r.ok) {
-        setMsg(`${r.message}（${payload.guashi.length} 条卦例、${tags.length} 个标签）`)
+        // 导出成功：在「数据备份」卡片内显示，不顶置提示
+        setLastBackup({
+          fileName,
+          path: r.path || '',
+          dir: r.dir || '',
+          at: Date.now(),
+          usedDefault: !!r.usedDefault,
+          count: payload.guashi.length,
+          tagsCount: tags.length,
+        })
+        setMsg('')
         setError('')
       } else {
         setError(r.message)
         setMsg('')
+        setLastBackup(null)
       }
     } catch (e) {
       setError('导出失败：' + e.message)
@@ -530,21 +568,36 @@ export default function SettingsPage() {
       </section>
 
       {/* 卡片 2.6：自定义导出路径（v1.0.1，仅 Tauri 端） */}
-      {isDesktop && (
+      {isDesktopEnv && (
         <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">
           <h2 className="text-base font-medium text-gold">自定义导出路径</h2>
           <p className="text-sm text-muted">
             导出 md 文件与数据备份时保存到指定目录，导出后会提示完整路径。未设置时自动保存到默认目录（文档/六爻工作台导出），确保导出成功。
           </p>
+
+          {/* 卡片内操作反馈（v1.0.1：就近显示，不顶置） */}
+          {pathMsg && (
+            <div className={`text-sm ${pathMsg.type === 'ok' ? 'text-gold' : 'text-red'}`}>{pathMsg.text}</div>
+          )}
+
           {/* md 导出路径 */}
           <div className="space-y-1.5">
-            <div className="text-sm text-text">md 文件导出路径</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text">md 文件导出路径</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  mdExportPath ? 'bg-goldSoft text-gold' : 'bg-panel2 text-muted'
+                }`}
+              >
+                {mdExportPath ? '自定义' : '默认'}
+              </span>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="text"
                 readOnly
                 value={mdExportPath}
-                placeholder="未设置（导出时弹窗选择位置）"
+                placeholder="未设置 → 使用默认目录（文档/六爻工作台导出）"
                 className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none"
               />
               <button
@@ -566,11 +619,7 @@ export default function SettingsPage() {
               {mdExportPath && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    await setSetting('export-path-md', null)
-                    setMdExportPath('')
-                    setMsg('md 导出目录已清除，导出时将弹窗选择位置')
-                  }}
+                  onClick={() => handleClearDir('md')}
                   className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
                 >
                   清除
@@ -580,13 +629,22 @@ export default function SettingsPage() {
           </div>
           {/* 备份导出路径 */}
           <div className="space-y-1.5 border-t border-border pt-3">
-            <div className="text-sm text-text">数据备份导出路径</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text">数据备份导出路径</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  backupExportPath ? 'bg-goldSoft text-gold' : 'bg-panel2 text-muted'
+                }`}
+              >
+                {backupExportPath ? '自定义' : '默认'}
+              </span>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="text"
                 readOnly
                 value={backupExportPath}
-                placeholder="未设置（导出时弹窗选择位置）"
+                placeholder="未设置 → 使用默认目录（文档/六爻工作台导出）"
                 className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none"
               />
               <button
@@ -608,11 +666,7 @@ export default function SettingsPage() {
               {backupExportPath && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    await setSetting('export-path-backup', null)
-                    setBackupExportPath('')
-                    setMsg('数据备份导出目录已清除，导出时将弹窗选择位置')
-                  }}
+                  onClick={() => handleClearDir('backup')}
                   className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
                 >
                   清除
@@ -624,7 +678,7 @@ export default function SettingsPage() {
       )}
 
       {/* 卡片 2.7：关闭窗口行为（v1.0.1，仅 Tauri 桌面端） */}
-      {isDesktop && (
+      {isDesktopEnv && (
         <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
           <h2 className="text-base font-medium text-gold">关闭窗口行为</h2>
           <p className="text-sm text-muted">
@@ -643,6 +697,40 @@ export default function SettingsPage() {
                 onClick={() => handleCloseBehavior(o.value)}
                 className={`flex min-w-[160px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
                   closeBehavior === o.value
+                    ? 'border-primary bg-primarySoft text-primary shadow-card1'
+                    : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
+                }`}
+              >
+                <span>
+                  <span className="block font-medium">{o.label}</span>
+                  <span className="block text-xs opacity-75">{o.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 卡片 2.8：屏幕适配（2026-08-09，仅 Android：全面屏 / 刘海屏） */}
+      {isAndroidEnv && (
+        <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+          <h2 className="text-base font-medium text-gold">屏幕适配</h2>
+          <p className="text-sm text-muted">
+            全面屏模式：应用界面延伸至屏幕边缘（当前默认）；刘海屏模式：应用界面与手机状态栏（刘海）区域分开，避免状态栏遮挡应用顶部内容。
+          </p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="屏幕适配">
+            {[
+              { value: 'full', label: '适应全面屏', desc: '当前模式：界面延伸至屏幕边缘' },
+              { value: 'notch', label: '适应刘海屏', desc: '界面避开状态栏，顶部内容不被遮挡' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={displayMode === o.value}
+                onClick={() => handleDisplayMode(o.value)}
+                className={`flex min-w-[160px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
+                  displayMode === o.value
                     ? 'border-primary bg-primarySoft text-primary shadow-card1'
                     : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
                 }`}
@@ -689,6 +777,49 @@ export default function SettingsPage() {
           />
           <span className="text-xs text-muted">导入会覆盖现有卦例库，请先导出备份</span>
         </div>
+
+        {/* 最近导出（v1.0.1）：就近显示导出结果，不顶置 */}
+        {lastBackup && (
+          <div className="rounded-lg border border-border bg-panel2 p-3">
+            <div className="flex items-start gap-3">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 h-5 w-5 shrink-0 text-gold">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="9" y1="13" x2="15" y2="13" />
+                <line x1="9" y1="17" x2="13" y2="17" />
+              </svg>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-text">已导出到：</span>
+                  <span className="font-medium text-gold">{lastBackup.fileName}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      lastBackup.usedDefault ? 'bg-panel text-muted' : 'bg-goldSoft text-gold'
+                    }`}
+                  >
+                    {lastBackup.usedDefault ? '默认目录' : '自定义'}
+                  </span>
+                </div>
+                <div className="break-all text-xs text-muted">{lastBackup.path}</div>
+                <div className="text-xs text-muted">
+                  包含 {lastBackup.count} 条卦例 · {lastBackup.tagsCount} 个标签 · {new Date(lastBackup.at).toLocaleString('zh-CN')}
+                </div>
+              </div>
+              {isDesktopEnv && lastBackup.dir && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await openExportDir(lastBackup.dir)
+                    if (!ok) setError('打开目录失败：路径可能不存在或已被移动')
+                  }}
+                  className="shrink-0 rounded-md border border-gold px-3 py-1.5 text-sm text-gold transition-colors hover:bg-goldSoft"
+                >
+                  打开目录
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* 卡片 3：关于 */}
@@ -701,7 +832,7 @@ export default function SettingsPage() {
           </p>
           <p>
             <span className="text-muted">版本：</span>
-            <span className="text-text">{APP_VERSION}（测试版）</span>
+            <span className="text-text">v{APP_VERSION} 正式版</span>
           </p>
           <p className="text-xs text-muted">
             本地排盘与卦例管理工具：9 种起卦方式、自占断记录、统计复盘与错题本、Markdown 与 JSON

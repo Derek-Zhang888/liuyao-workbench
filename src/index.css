@@ -11,4 +11,18 @@
   ::selection {
     background-color: var(--primary-soft);
   }
+
+  /* 2026-08-09：刘海屏模式（Android，html.display-notch）——
+     修复：让 sticky header 玻璃背景延伸到屏幕顶（覆盖刘海区），
+     header 内容靠 padding-top 让出状态栏安全区。
+     之前实现 body padding-top + sticky.top-0 钉到 safe-area 之下，
+     导致刘海区显示的是 body 底色（不是 header），滚动时视觉上感觉"内容超出到刘海"。 */
+  html.display-notch body {
+    padding-top: 0;
+  }
+
+  html.display-notch .sticky.top-0 {
+    top: 0 !important;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
 }

@@ -210,6 +210,8 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
 
   return (
     <section className="card mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-panel">
+      {/* 画板覆盖层作用域（v0.2 功能 A，2026-08-09 扩展至盘面全覆盖）：时间栏 + 神煞栏 + 卦名行 + 表头 + 爻行 */}
+      <div className="relative">
       {/* 干支行（月建/日建可被六亲用神高亮） */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2 text-sm">
         <span className="text-muted">
@@ -288,9 +290,7 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
         </div>
       ) : null}
 
-      {/* 卦名行 + 表头 + 爻行（v0.2 画板覆盖层作用域：开启时覆盖此区域，不遮地支分析） */}
-      <div className="relative">
-        {/* 卦名行 */}
+      {/* 卦名行 */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 text-sm">
         <span className="text-muted">本卦</span>
         <button

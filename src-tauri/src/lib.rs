@@ -15,6 +15,40 @@ fn set_close_behavior(state: tauri::State<CloseBehavior>, to_tray: bool) {
   state.0.store(to_tray, Ordering::SeqCst);
 }
 
+/// 在系统文件管理器中打开目录（Windows explorer / macOS open / Linux xdg-open）。
+/// 用 std::process::Command 自实现，绕开 opener 插件的 capabilities 与路径处理坑。
+#[tauri::command]
+fn open_dir(path: String) -> Result<(), String> {
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("explorer")
+      .arg(&path)
+      .spawn()
+      .map_err(|e| format!("explorer 启动失败：{}", e))?;
+    return Ok(());
+  }
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .arg(&path)
+      .spawn()
+      .map_err(|e| format!("open 启动失败：{}", e))?;
+    return Ok(());
+  }
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    std::process::Command::new("xdg-open")
+      .arg(&path)
+      .spawn()
+      .map_err(|e| format!("xdg-open 启动失败：{}", e))?;
+    return Ok(());
+  }
+  #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+  {
+    Err("当前平台暂不支持打开目录".to_string())
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -81,7 +115,7 @@ pub fn run() {
         }
       }
     })
-    .invoke_handler(tauri::generate_handler![set_close_behavior])
+    .invoke_handler(tauri::generate_handler![set_close_behavior, open_dir])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

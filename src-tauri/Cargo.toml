@@ -1,6 +1,6 @@
 [package]
 name = "liuyao-workbench"
-version = "1.0.1"
+version = "1.0.0"
 description = "六爻工作台：纯前端六爻排盘与卦例管理应用（Web / Windows / Android）"
 authors = ["liuyao-workbench"]
 license = "MIT"
@@ -13,6 +13,12 @@ rust-version = "1.77.2"
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# 2026-08-09 关键修复：tauri CLI（tauri build/android build）编译时自动启用 custom-protocol，
+# 手动 cargo build 必须显式加 --features custom-protocol，否则 generate_context 走 dev 分支
+# （devUrl 存在 → 空资产）→ APK 内不嵌入前端 dist（安卓端曾因此永远旧版/白屏）
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
