@@ -5,11 +5,13 @@
  * - setCloseBehavior(toTray)：通知 Rust 端关闭窗口行为（托盘 / 直接退出）
  * - pickDirectory(title)：调用系统目录选择器，返回绝对路径或 null
  * - writeToDir(dir, fileName, content)：把内容写入指定目录（Tauri 专用）
+ * - getDefaultExportDir()：获取/创建默认导出目录（文档/六爻工作台导出），保证导出必成功
+ * - openExportDir(dir)：在文件管理器中打开目录（opener 插件）
  *
  * Web 版（浏览器）无法自定义保存路径，由调用方 fallback 到浏览器下载。
  */
 import { isTauri as tauriIsTauri } from '@tauri-apps/api/core'
-import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs'
+import { writeTextFile, writeFile, mkdir } from '@tauri-apps/plugin-fs'
 import { open, save } from '@tauri-apps/plugin-dialog'
 
 /** 是否运行在 Tauri 容器内 */
@@ -57,6 +59,30 @@ export async function pickDirectory(title = '选择保存目录') {
 }
 
 /**
+ * 获取默认导出目录（文档/六爻工作台导出），不存在则自动创建。
+ * 用于未设置自定义路径时的兜底，确保导出必成功。
+ * @returns {Promise<string|null>} 目录绝对路径；非 Tauri 或失败返回 null
+ */
+export async function getDefaultExportDir() {
+  if (!isTauri()) return null
+  try {
+    const { documentDir, join } = await import('@tauri-apps/api/path')
+    const base = await documentDir()
+    const dir = await join(base, '六爻工作台导出')
+    // 目录不存在则创建（recursive）
+    try {
+      await mkdir(dir, { recursive: true })
+    } catch (_) {
+      /* 已存在则忽略 */
+    }
+    return dir
+  } catch (e) {
+    console.warn('getDefaultExportDir failed:', e)
+    return null
+  }
+}
+
+/**
  * 把内容写入指定目录（Tauri 专用；Web 版返回 false 由调用方走浏览器下载）
  * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
  */
@@ -78,17 +104,18 @@ export async function writeToDir(dir, fileName, content) {
 }
 
 /**
- * 弹保存对话框（Tauri 专用，让用户直接选文件保存位置）
- * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
+ * 弹保存对话框（Tauri 专用，让用户直接选文件保存位置）。
+ * 取消时返回 { ok:false, message:'已取消保存' }，与失败区分。
+ * @returns {Promise<{ok: boolean, path?: string, error?: string, message?: string}>}
  */
 export async function saveFileDialog(defaultName, content, filters) {
-  if (!isTauri()) return { ok: false }
+  if (!isTauri()) return { ok: false, message: '当前环境不支持保存对话框' }
   try {
     const path = await save({
       defaultPath: defaultName,
       filters,
     })
-    if (!path) return { ok: false }
+    if (!path) return { ok: false, message: '已取消保存' }
     if (content instanceof Uint8Array) {
       await writeFile(path, content)
     } else {
@@ -96,7 +123,20 @@ export async function saveFileDialog(defaultName, content, filters) {
     }
     return { ok: true, path }
   } catch (e) {
-    return { ok: false, error: e.message }
+    return { ok: false, error: e.message, message: `保存失败：${e.message}` }
+  }
+}
+
+/** 在系统文件管理器中打开目录（opener 插件）；失败返回 false */
+export async function openExportDir(dir) {
+  if (!isTauri() || !dir) return false
+  try {
+    const { openPath } = await import('@tauri-apps/plugin-opener')
+    await openPath(dir)
+    return true
+  } catch (e) {
+    console.warn('openExportDir failed:', e)
+    return false
   }
 }
 

@@ -20,10 +20,10 @@ import { addTag, listTags } from '../db/tagsRepo.js'
 import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { getTheme, setTheme } from '../utils/theme.js'
 import { saveExport, JSON_FILTERS } from '../utils/exportHelper.js'
-import { isTauri, pickDirectory, setCloseBehavior } from '../utils/tauriBridge.js'
+import { isTauri, pickDirectory, setCloseBehavior, openExportDir } from '../utils/tauriBridge.js'
 
 /** 与 package.json 保持一致 */
-const APP_VERSION = '0.1.0'
+const APP_VERSION = '1.0.1'
 
 /** 盘面标记 11 开关定义（v0.2 功能 B）：key 与 settings 表一致，默认全关 */
 const MARKER_DEFS = [
@@ -215,6 +215,17 @@ export default function SettingsPage() {
     } catch (e) {
       setError('保存导出目录失败：' + e.message)
     }
+  }
+
+  /* ---------- v1.0.1：打开导出目录（opener 插件） ---------- */
+  const handleOpenDir = async (kind) => {
+    const dir = kind === 'md' ? mdExportPath : backupExportPath
+    if (!dir) {
+      setMsg('请先选择导出目录')
+      return
+    }
+    const ok = await openExportDir(dir)
+    if (!ok) setMsg('打开目录失败：目录可能不存在或已被移动')
   }
 
   /* ---------- v1.0.1：关闭窗口行为（Tauri 桌面端） ---------- */
@@ -523,7 +534,7 @@ export default function SettingsPage() {
         <section className="card space-y-4 rounded-xl border border-border bg-panel p-5">
           <h2 className="text-base font-medium text-gold">自定义导出路径</h2>
           <p className="text-sm text-muted">
-            导出 md 文件与数据备份时保存到指定目录，导出后会提示完整路径。未设置时导出会弹出系统保存对话框。
+            导出 md 文件与数据备份时保存到指定目录，导出后会提示完整路径。未设置时自动保存到默认目录（文档/六爻工作台导出），确保导出成功。
           </p>
           {/* md 导出路径 */}
           <div className="space-y-1.5">
@@ -543,6 +554,15 @@ export default function SettingsPage() {
               >
                 {mdExportPath ? '更换目录' : '选择目录'}
               </button>
+              {mdExportPath && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenDir('md')}
+                  className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
+                >
+                  打开目录
+                </button>
+              )}
               {mdExportPath && (
                 <button
                   type="button"
@@ -576,6 +596,15 @@ export default function SettingsPage() {
               >
                 {backupExportPath ? '更换目录' : '选择目录'}
               </button>
+              {backupExportPath && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenDir('backup')}
+                  className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
+                >
+                  打开目录
+                </button>
+              )}
               {backupExportPath && (
                 <button
                   type="button"

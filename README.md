@@ -2,7 +2,7 @@
 
 > **把千年玄学装进现代工具链。** 一个纯前端的六爻排盘与卦例管理应用：从铜钱摇卦到深度地支分析，从手绘画板到 Markdown 双向同步，从真太阳时校准到 24 节气高精度历法——一卦一录，卦卦可考。
 
-**版本 1.0.0（正式版）** · Web / Windows / Android 三端 · React 18 + Vite 5 + Tailwind CSS 3 + IndexedDB
+**版本 1.0.1（正式版）** · Web / Windows / Android 三端 · React 18 + Vite 5 + Tailwind CSS 3 + IndexedDB
 
 ---
 

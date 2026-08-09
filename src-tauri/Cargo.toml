@@ -1,6 +1,6 @@
 [package]
 name = "liuyao-workbench"
-version = "1.0.0"
+version = "1.0.1"
 description = "六爻工作台：纯前端六爻排盘与卦例管理应用（Web / Windows / Android）"
 authors = ["liuyao-workbench"]
 license = "MIT"
@@ -25,3 +25,4 @@ tauri = { version = "2.11.3", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
