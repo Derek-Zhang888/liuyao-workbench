@@ -4,6 +4,7 @@ node_modules/
 # 构建产物
 dist/
 dist-ssr/
+dist-release/
 
 # 日志
 *.log
@@ -30,3 +31,27 @@ docs/superpowers/
 # 构建/测试临时产物
 vite.config.js.timestamp-*.mjs
 vt.json
+
+# 本地探针/临时脚本（不进入公开仓库）
+_*.mjs
+_*.txt
+_*.log
+shelltest.txt
+vitest_out.txt
+vitest_result.json
+
+# Tauri 桌面端
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Android 构建产物
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/build/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/app/src/main/assets/
+src-tauri/gen/android/local.properties
+*.apk
+*.aab
+
+# 应用图标源素材（构建期生成）
+app-assets/icon.png
