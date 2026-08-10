@@ -117,6 +117,12 @@ npm run build    # 生产构建
 - 直接下载安装包：见 [Releases](https://github.com/Derek-Zhang888/liuyao-workbench/releases)
 - 或本地构建：`npm run tauri:build`（Windows exe）/ `npm run tauri:android:build`（Android APK）
 
+> **⚠️ Win11 智能应用控制（SAC）提示**：若打开 exe 时被系统拦截（提示"智能应用控制已阻止此应用"），是因为应用尚未购买代码签名证书，属未签名 exe 的正常提示，应用本身是安全的，可放心使用。
+>
+> **关闭方法**：`设置 → 隐私和安全性 → Windows 安全中心 → 应用和浏览器控制 → 智能应用控制 → 关闭`
+>
+> **注意**：SAC 一旦关闭**无法重新开启**（除非重装 Windows），请自行权衡；关闭后所有未签名应用均不再被拦截。代码签名证书方案将在正式发布时评估。
+
 ---
 
 ## 🧪 测试与质量
