@@ -607,8 +607,11 @@ export default function GuashiLibPage() {
             </div>
           </div>
 
-          {/* v0.2 功能 G：编辑视图双栏——盘面左、占断右；≥lg 两栏，<lg 单列堆叠 */}
-          <div className="grid gap-5 lg:grid-cols-2">
+          {/* v0.2 功能 G：编辑视图双栏——盘面左、占断右；≥lg 两栏，<lg 单列堆叠。
+              2026-08-10：左列固定 672px（= PanView max-w-2xl，与排盘页容器等宽），
+              否则 grid-cols-2 时左列 ≈ 595px，与排盘页 672 容器不同 → 画板内容相对盘面位置偏移。
+              右列 min-w-0 占断面板自适应+内部滚动。 */}
+          <div className="grid gap-5 lg:grid-cols-[672px_minmax(0,1fr)]">
             {/* 左：盘面 + 自定用神（v0.2 功能 I；v0.10 编辑视图画板开关） */}
             <div className="space-y-4">
               {panRes?.ok ? (

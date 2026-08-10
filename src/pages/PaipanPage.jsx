@@ -447,7 +447,7 @@ export default function PaipanPage() {
 
   return (
     // v0.10 #15：排盘页宽度以盘面为主——lg 起卦:盘面:占断 = 5:7:5（盘面更宽），响应式不破坏移动端单列
-    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)_minmax(0,5fr)]">
+    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-[minmax(0,5fr)_minmax(0,672px)_minmax(0,5fr)]">
       {/* 起卦区（key 变化时重挂载，重新起卦后输入区复位）+ 用神选择器（功能二） */}
       <div className="space-y-5">
         <QiguaSelector key={qiguaResetKey} onStart={handleStart} />

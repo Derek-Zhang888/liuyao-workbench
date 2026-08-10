@@ -272,14 +272,29 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const width = (doodle && Number(doodle.width)) || size.width || 600
   const height = (doodle && Number(doodle.height)) || size.height || 400
 
-  // 文字浮层定位兜底（改进建9 #1）：百分比钳制在画布内，靠近右/下边缘时收进容器，
+  // 文字浮层定位（改进建9 #1）：钳制在画布内，靠近右/下边缘时收进容器，
   // 避免输入框（w-44 ≈ 190px）超出画布被 PanView overflow-hidden 裁剪而「看不到」。
-  const textLeftPct = textDraft
-    ? (Math.max(0, Math.min(Math.max(1, width) - 190, textDraft.x)) / Math.max(1, width)) * 100
-    : 0
-  const textTopPct = textDraft
-    ? (Math.max(0, Math.min(Math.max(1, height) - 34, textDraft.y - 18)) / Math.max(1, height)) * 100
-    : 0
+  // 2026-08-10：preserveAspectRatio 改 xMidYMid meet 后内容可能居中留白（letterbox），
+  // 浮层按内容区像素定位（scale + offset 与 getPoint 同源），容器比例不同时不错位；
+  // 容器未测量时兜底用画布坐标百分比。
+  const textStyle = textDraft
+    ? (() => {
+        const w = Math.max(1, width)
+        const h = Math.max(1, height)
+        const rect = svgRef.current ? svgRef.current.getBoundingClientRect() : { width: 0, height: 0 }
+        if (rect.width && rect.height) {
+          const scale = Math.min(rect.width / w, rect.height / h)
+          const ox = (rect.width - w * scale) / 2
+          const oy = (rect.height - h * scale) / 2
+          const leftPx = ox + Math.max(0, Math.min(w - 190 / scale, textDraft.x)) * scale
+          const topPx = oy + Math.max(0, Math.min(h - 34 / scale, textDraft.y - 18)) * scale
+          return { left: `${leftPx}px`, top: `${topPx}px` }
+        }
+        const leftPct = (Math.max(0, Math.min(w - 190, textDraft.x)) / w) * 100
+        const topPct = (Math.max(0, Math.min(h - 34, textDraft.y - 18)) / h) * 100
+        return { left: `${leftPct}%`, top: `${topPct}%` }
+      })()
+    : null
 
   /** 工具栏当前渲染位置：无保存值（首次挂载未测量完成）时兜底视口 (8,8) */
   const tp = toolbarPos ?? { x: 8, y: 8 }
@@ -291,12 +306,18 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
   const touchCls = tool === 'mouse' ? (dragSel ? 'touch-none' : 'touch-auto') : 'touch-none'
 
-  /** pointer 事件 → 画布坐标（viewBox 与容器像素映射，preserveAspectRatio="none" 下按比例换算） */
+  /** pointer 事件 → 画布坐标（viewBox 与容器像素映射）。
+   *  2026-08-10：preserveAspectRatio 改 xMidYMid meet 后，容器与画布比例不同时内容
+   *  等比居中（letterbox），此处按内容区（缩放后居中区域）换算，offset 补偿留白。 */
   const getPoint = (e) => {
     const rect = svgRef.current ? svgRef.current.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 }
-    const sx = rect.width ? width / rect.width : 1
-    const sy = rect.height ? height / rect.height : 1
-    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
+    const w = Math.max(1, width)
+    const h = Math.max(1, height)
+    if (!rect.width || !rect.height) return { x: 0, y: 0 }
+    const scale = Math.min(rect.width / w, rect.height / h)
+    const ox = (rect.width - w * scale) / 2
+    const oy = (rect.height - h * scale) / 2
+    return { x: (e.clientX - rect.left - ox) / scale, y: (e.clientY - rect.top - oy) / scale }
   }
 
   /** 圆形半径（2026-08-10：兼容旧 r 字段，新数据 rx/ry 优先） */
@@ -612,12 +633,17 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
         className="absolute inset-0 z-20"
         onClick={(e) => e.stopPropagation()} // 拦截爻位跳转（画板开启优先级最高）
       >
-        {/* SVG 覆盖层：viewBox = 画布尺寸，preserveAspectRatio="none" 坐标 1:1 */}
+        {/* SVG 覆盖层：viewBox = 画布尺寸（容器实测像素，坐标 1:1）。
+            ⚠️ 2026-08-10 修复「保存到卦例库后画板整体右移+横向拉长」：
+            原 preserveAspectRatio="none" + h-full w-full 会把画布强制拉伸到当前容器宽高比——
+            排盘页容器与卦例库容器比例不同 → 内容变形。改为 xMidYMid meet：内容等比缩放居中
+            （任何容器不变形不裁切）；绘制时容器=画布尺寸，无留白，观感与原来完全一致。
+            pointer 换算见 getPoint（含 letterbox 偏移补偿）。 */}
         <svg
           ref={svgRef}
           className={`absolute inset-0 h-full w-full ${touchCls} ${cursorCls}`}
           viewBox={`0 0 ${width} ${height}`}
-          preserveAspectRatio="none"
+          preserveAspectRatio="xMidYMid meet"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -681,10 +707,7 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
         {textDraft ? (
           <div
             className="absolute z-40"
-            style={{
-              left: `${textLeftPct}%`,
-              top: `${textTopPct}%`,
-            }}
+            style={textStyle || undefined}
           >
             <input
               ref={textInputRef}

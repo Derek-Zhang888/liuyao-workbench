@@ -75,7 +75,8 @@ describe('DoodleBoard 渲染与开关', () => {
     const svg = container.querySelector('svg')
     expect(svg).toBeTruthy()
     expect(svg.getAttribute('viewBox')).toBe('0 0 600 400')
-    expect(svg.getAttribute('preserveAspectRatio')).toBe('none')
+    // 2026-08-10：改为 xMidYMid meet（容器比例不同时画布等比缩放不拉伸，修复保存到卦例库后变形）
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
   })
 
   test('容器测量兜底：无 doodle 尺寸时用容器实测（jsdom 为 0 → 600x400 兜底）', () => {
@@ -510,13 +511,34 @@ describe('DoodleBoard 改进建9 #1（文字浮层可见性 / 工具栏 fixed �
     firePointer('pointerdown', svg, { x: 595, y: 395 })
     const input = await screen.findByPlaceholderText('输入文字，回车确认')
     const wrap = input.parentElement
-    const leftPct = parseFloat(wrap.style.left)
-    const topPct = parseFloat(wrap.style.top)
-    // 钳制在画布内：left ≤ (600-190)/600=68.33%，top ≤ (400-34)/400=91.5%
-    expect(leftPct).toBeGreaterThanOrEqual(0)
-    expect(topPct).toBeGreaterThanOrEqual(0)
-    expect(leftPct).toBeLessThanOrEqual(((600 - 190) / 600) * 100 + 1e-6)
-    expect(topPct).toBeLessThanOrEqual(((400 - 34) / 400) * 100 + 1e-6)
+    // 2026-08-10：浮层改按内容区像素定位（mock rect 600x400 = 画布 1:1，scale=1、无留白）
+    const leftPx = parseFloat(wrap.style.left)
+    const topPx = parseFloat(wrap.style.top)
+    // 钳制在画布内：left ≤ 600-190=410px，top ≤ 400-34=366px
+    expect(leftPx).toBeGreaterThanOrEqual(0)
+    expect(topPx).toBeGreaterThanOrEqual(0)
+    expect(leftPx).toBeLessThanOrEqual(600 - 190 + 1e-6)
+    expect(topPx).toBeLessThanOrEqual(400 - 34 + 1e-6)
+  })
+
+  test('meet 容器比例不同：pointer 换算补偿 letterbox（修复保存到卦例库后画板偏移/拉长）', async () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={BASE} onChange={onChange} />)
+    fireEvent.click(screen.getByText('画笔'))
+    const svg = container.querySelector('svg')
+    // 模拟卦例库宽扁容器 900x400（画布 600x400）：内容区宽 600 居中于 900，左右各留白 150
+    svg.getBoundingClientRect = () => ({
+      left: 0, top: 0, width: 900, height: 400, right: 900, bottom: 400, x: 0, y: 0,
+      toJSON: () => ({}),
+    })
+    // 点击容器中心偏右 (450,200) → 画布坐标应为 (300,200)（扣除左留白 150）
+    firePointer('pointerdown', svg, { x: 450, y: 200 })
+    firePointer('pointermove', svg, { x: 750, y: 200 })
+    firePointer('pointerup', svg, { x: 750, y: 200 })
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    const el = lastDoodle(onChange).elements[0]
+    expect(el.points[0]).toMatchObject({ x: 300, y: 200 })
+    expect(el.points[1]).toMatchObject({ x: 600, y: 200 })
   })
 
   test('工具栏 fixed 视口级定位：style position=fixed，left/top 来自 toolbarPos', () => {

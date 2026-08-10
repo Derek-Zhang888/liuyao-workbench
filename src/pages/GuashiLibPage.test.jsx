@@ -113,8 +113,8 @@ describe('GuashiLibPage 编辑视图双栏（v0.2 功能 G）', () => {
     renderPage()
     fireEvent.click(await screen.findByText('双栏卦例'))
     await screen.findByText('编辑卦例')
-    // 双栏容器（Tailwind lg:grid-cols-2）
-    const grid = document.querySelector('[class*="lg:grid-cols-2"]')
+    // 双栏容器（2026-08-10：左列固定 672px 与排盘页 PanView 等宽，修复画板偏移）
+    const grid = document.querySelector('[class*="672px"]')
     expect(grid).toBeTruthy()
     // 左列盘面 + 右列占断同在一个网格容器
     expect(within(grid).getByTestId('pan-view')).toBeTruthy()

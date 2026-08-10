@@ -519,7 +519,9 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
             <span className="text-muted">盘面画板（涂鸦）</span>
           </label>
           {doodleEnabled ? (
-            <span className="text-xs text-muted">开启时可在盘面上自由涂鸦，点击爻位不会跳转</span>
+            <span className="text-xs text-muted">
+              开启时可在盘面上自由涂鸦，点击爻位不会跳转；建议在全屏（或大窗口 ≥1024px）状态下使用，避免保存后涂鸦位置偏移
+            </span>
           ) : null}
         </div>
       ) : null}
