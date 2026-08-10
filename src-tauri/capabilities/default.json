@@ -9,6 +9,8 @@
     "core:default",
     "androidExportPlugin:default",
     "dialog:default",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
     "fs:default",
     "fs:allow-write-text-file",
     "fs:allow-write-file",
