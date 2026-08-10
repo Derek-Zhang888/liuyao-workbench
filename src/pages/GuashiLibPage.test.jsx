@@ -7,7 +7,8 @@
  *   - I：编辑视图自定用神回显（快照/顶层字段）+ 保存落库 + 导入记录重排恢复用神
  *   - J：URL tags= 重复参数预选标签
  *
- * 存储走 fake-indexeddb；PanView/DuanInput/TagEditor/GuashiCard/ConfirmDialog 以 mock 驱动，
+ * 存储走 fake-indexeddb；PanView/TagEditor/GuashiCard/ConfirmDialog 以 mock 驱动，
+ * DuanInput 用真实组件（2026-08-11：duanOf 漏 background 修复回归，需真实受控渲染验证背景回填/保存），
  * YongShenSelector mock 暴露 value 并可触发 onChange（模拟编辑页换用神）。
  */
 import 'fake-indexeddb/auto'
@@ -30,7 +31,6 @@ vi.mock('../components/PanView.jsx', () => ({
     />
   ),
 }))
-vi.mock('../components/DuanInput.jsx', () => ({ default: () => null }))
 vi.mock('../components/TagEditor.jsx', () => ({ default: () => null }))
 vi.mock('../components/YongShenSelector.jsx', () => ({
   default: ({ value, onChange }) => (
@@ -121,6 +121,31 @@ describe('GuashiLibPage 编辑视图双栏（v0.2 功能 G）', () => {
     expect(within(grid).getByText('占断')).toBeTruthy()
     // 快照盘面正常传入（无自定用神 → none）
     expect(within(grid).getByTestId('pan-view').getAttribute('data-yongshen')).toBe('none')
+  })
+})
+
+describe('GuashiLibPage 编辑视图背景信息（v0.2 功能 D，2026-08-11 回归）', () => {
+  test('打开含 background 的卦例：背景文本框回填显示原内容', async () => {
+    await addGuashi(rec({ title: '背景卦例', background: '原背景：问事业' }))
+    renderPage()
+    fireEvent.click(await screen.findByText('背景卦例'))
+    await screen.findByText('编辑卦例')
+    expect(screen.getByPlaceholderText('占问背景（事由、双方关系、环境等）…').value).toBe('原背景：问事业')
+  })
+
+  test('编辑页修改背景并保存：落库为最新输入（输入不被吞、保存不丢）', async () => {
+    await addGuashi(rec({ title: '改背景卦例', background: '旧背景' }))
+    renderPage()
+    fireEvent.click(await screen.findByText('改背景卦例'))
+    await screen.findByText('编辑卦例')
+    const bg = screen.getByPlaceholderText('占问背景（事由、双方关系、环境等）…')
+    // 回填显示旧背景后，输入新内容（duanOf 若缺 background 会吞输入——回归点）
+    fireEvent.change(bg, { target: { value: '新背景：占测出行' } })
+    expect(bg.value).toBe('新背景：占测出行')
+    fireEvent.click(screen.getAllByText('保存修改')[0])
+    await waitFor(() => expect(screen.getAllByText('已保存修改').length).toBeGreaterThan(0))
+    const list = await listGuashi()
+    expect(list[0].background).toBe('新背景：占测出行')
   })
 })
 

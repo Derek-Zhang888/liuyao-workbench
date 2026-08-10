@@ -78,6 +78,7 @@ function AddTagInline({ onAdded }) {
 /** 从记录中提取占断字段（DuanInput 的 value 结构） */
 function duanOf(rec) {
   return {
+    background: rec.background ?? '', // v0.2 功能 D：编辑页背景回填（曾缺失→背景显示空/输入被吞/保存丢失）
     duanyu: rec.duanyu ?? '',
     yingqi: rec.yingqi ?? '',
     beizhu: rec.beizhu ?? '',
