@@ -24,7 +24,7 @@ import { isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExportDir } 
 import { getDisplayMode, setDisplayMode } from '../utils/displayMode.js'
 
 /** 与 package.json 保持一致 */
-const APP_VERSION = '1.0.0'
+const APP_VERSION = '1.0.1'
 
 /** 盘面标记 11 开关定义（v0.2 功能 B）：key 与 settings 表一致，默认全关 */
 const MARKER_DEFS = [
