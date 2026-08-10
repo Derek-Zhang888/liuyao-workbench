@@ -20,7 +20,7 @@ import { addTag, listTags } from '../db/tagsRepo.js'
 import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { getTheme, setTheme } from '../utils/theme.js'
 import { saveExport, JSON_FILTERS } from '../utils/exportHelper.js'
-import { isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExportDir } from '../utils/tauriBridge.js'
+import { isTauri, isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExportDir } from '../utils/tauriBridge.js'
 import { getDisplayMode, setDisplayMode } from '../utils/displayMode.js'
 
 /** 与 package.json 保持一致 */
@@ -125,7 +125,9 @@ export default function SettingsPage() {
       // v1.0.1：自定义导出路径 + 关闭窗口行为（仅 Tauri 桌面端展示；Android 无目录选择/托盘能力）
       const desktop = isDesktop()
       setIsDesktopEnv(desktop)
-      setIsAndroidEnv(isAndroid())
+      // 2026-08-11：安卓判定加 isTauri()——安卓浏览器 UA 含 Android 会让 isAndroid() 误判为 true，
+      // 导致设置页误渲染安卓专属卡片（导出位置/屏幕适配）；浏览器里没有 Tauri runtime。
+      setIsAndroidEnv(isTauri() && isAndroid())
       if (desktop) {
         try {
           const md = await getSetting('export-path-md')
@@ -141,7 +143,7 @@ export default function SettingsPage() {
         } catch (_) {}
       }
       // 2026-08-10：安卓导出位置（默认公共 Download/六爻工作台，可选每次选择）
-      if (isAndroid()) {
+      if (isTauri() && isAndroid()) {
         try {
           const m = await getSetting('export-android-mode')
           if (m) setAndroidExportMode(m)

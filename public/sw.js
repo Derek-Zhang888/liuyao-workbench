@@ -2,7 +2,7 @@
  * 策略：网络优先 + 缓存兜底。静态资源命中网络时写入缓存，离线/弱网时回退缓存。
  * 数据始终走 IndexedDB（不经过 SW），隐私承诺不变：不上传、不追踪。
  */
-const CACHE = 'liuyao-workbench-v1'
+const CACHE = 'liuyao-workbench-v2'
 
 self.addEventListener('install', () => {
   self.skipWaiting()

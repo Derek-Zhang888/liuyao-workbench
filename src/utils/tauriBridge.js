@@ -68,14 +68,16 @@ function toBase64(content) {
 /**
  * 安卓导出到公共 Download/六爻工作台（MediaStore，免权限；坚果云等同步 App 可访问）。
  * 2026-08-10：解决安卓端导出落 app data 沙盒目录、同步工具无法访问的问题。
+ * 2026-08-11 三修：加 isTauri() 守卫——安卓浏览器 UA 含 Android 会让 isAndroid() 误判为 true，
+ * 但浏览器里没有 Tauri runtime，直接 invoke 会抛「Cannot read properties of undefined (reading 'invoke')」。
  * @param {string} fileName 文件名（含扩展名）
  * @param {string|Uint8Array} content 文件内容
- * @returns {Promise<string|null>} content URI 字符串；非 Android 返回 null。
+ * @returns {Promise<string|null>} content URI 字符串；非 Android Tauri 环境返回 null。
  * 失败时抛出 Error（携带 Rust/Kotlin 侧真实错误信息，2026-08-10 改为不吞错，
  * 之前统一吞成 null 导致 UI 只能显示硬编码「无法写入所选位置」，无法定位根因）。
  */
 export async function androidExportDefault(fileName, content) {
-  if (!isAndroid()) return null
+  if (!isTauri() || !isAndroid()) return null
   const { invoke } = await import('@tauri-apps/api/core')
   return await invoke('plugin:androidExportPlugin|save_default', {
     fileName,
@@ -85,10 +87,11 @@ export async function androidExportDefault(fileName, content) {
 
 /**
  * 安卓导出弹系统「保存到」选择器（SAF CreateDocument），用户选任意位置。
- * @returns {Promise<string|null>} content URI 字符串；非 Android 返回 null；取消/失败抛 Error
+ * 2026-08-11：同样加 isTauri() 守卫（安卓浏览器 UA 误判防护）。
+ * @returns {Promise<string|null>} content URI 字符串；非 Android Tauri 环境返回 null；取消/失败抛 Error
  */
 export async function androidExportPick(fileName, content) {
-  if (!isAndroid()) return null
+  if (!isTauri() || !isAndroid()) return null
   const { invoke } = await import('@tauri-apps/api/core')
   return await invoke('plugin:androidExportPlugin|save_pick', {
     fileName,

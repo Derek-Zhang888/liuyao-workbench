@@ -41,10 +41,22 @@ function dirOfPath(filePath) {
  * @param {object} [filters] 保存对话框过滤器 { name, extensions: [] }
  */
 export async function saveExport(kind, fileName, content, mime, filters) {
+  // 2026-08-11 防御性日志：记录环境判断实际值，排查 UA 误判（安卓浏览器 isAndroid()=true
+  // 但 isTauri()=false 曾导致误入安卓分支、invoke undefined 抛错）
+  // eslint-disable-next-line no-console
+  console.warn('[saveExport] env:', {
+    isTauri: isTauri(),
+    isAndroid: isAndroid(),
+    kind,
+    fileName,
+  })
   // 2026-08-10 安卓分支：默认导出到公共 Download/六爻工作台（MediaStore，坚果云等可同步）；
   // 设置页可选「每次选择保存位置」（SAF CreateDocument 弹系统保存框）。
   // 不再落入 app data 沙盒目录——这是安卓端数据同步的前提。
-  if (isAndroid()) {
+  // 2026-08-11 三修：安卓分支必须 isTauri() && isAndroid() 双条件。
+  // 安卓浏览器 UA 含 Android 会让 isAndroid() 误判为 true，但浏览器没有 Tauri runtime，
+  // 直接调 androidExport* 会 invoke undefined 抛错。双条件后安卓浏览器走下方 Web 下载分支。
+  if (isTauri() && isAndroid()) {
     let mode = 'default'
     try {
       mode = (await getSetting('export-android-mode')) || 'default'
@@ -67,7 +79,7 @@ export async function saveExport(kind, fileName, content, mime, filters) {
       return { ok: false, message: msg.startsWith('导出失败') ? msg : `导出失败：${msg}` }
     }
   }
-  if (isTauri()) {
+  if (isTauri() && !isAndroid()) {
     // 1) 读自定义路径设置（md → 'export-path-md'，backup → 'export-path-backup'）
     const key = kind === 'md' ? 'export-path-md' : 'export-path-backup'
     let dir = null
