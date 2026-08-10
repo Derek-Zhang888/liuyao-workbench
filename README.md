@@ -95,7 +95,14 @@
 
 ## 🚀 快速开始
 
-### Web 版（浏览器）
+### 在线体验（Web 版，无需安装）
+
+🌐 **https://derek-zhang888.github.io/liuyao-workbench/**
+
+> **iPhone / iPad**：用 Safari 打开上方链接 → 点分享 → 「添加到主屏幕」→ 即可像 App 一样全屏使用（支持离线缓存）。
+> 数据保存在各自浏览器本地 IndexedDB，互不干扰。
+
+### 本地运行
 
 ```bash
 npm install
