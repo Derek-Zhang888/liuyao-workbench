@@ -108,6 +108,8 @@ export default function PaipanPage() {
   const [confirmDup, setConfirmDup] = useState(false)
   const [pendingRecord, setPendingRecord] = useState(null)
   const titleInputRef = useRef(null)
+  // 2026-08-10：盘面容器 ref——起卦后自动滚动定位（移动端单列布局，不滚会误以为没起卦）
+  const panRef = useRef(null)
 
   // ---- 状态持久化：跨导航保留起盘结果 ----
   const SESSION_KEY = 'liuyao-paipan-state'
@@ -238,6 +240,10 @@ export default function PaipanPage() {
         markers: await readMarkers(), // 盘面标记 11 开关（v0.2 功能 B）
       })
       setPan(p)
+      // 2026-08-10：起卦后自动滚动定位到盘面（移动端起卦区在盘面上方，不滚看不到卦盘，误以为没起卦）
+      setTimeout(() => {
+        panRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      }, 60)
       setTsUsed(ts)
       setMethod(r.method)
       setParams(r.params)
@@ -450,7 +456,7 @@ export default function PaipanPage() {
 
       {/* 盘面区：md 起卦+盘面并排；lg 起卦|盘面|占断 三栏 */}
       {pan && (
-        <div className="md:col-span-1 lg:col-span-1">
+        <div ref={panRef} className="scroll-mt-20 md:col-span-1 lg:col-span-1">
           <PanView
             pan={pan}
             doodle={doodle}
