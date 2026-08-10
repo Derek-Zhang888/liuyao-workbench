@@ -766,3 +766,169 @@ describe('DoodleBoard 2026-08-09（鼠标工具 + 收起悬浮球）', () => {
     expect(sessionStorage.getItem('liuyao-doodle-toolbar')).toContain(String(startLeft + 40))
   })
 })
+
+
+describe('DoodleBoard 2026-08-10（鼠标工具拖动元素）', () => {
+  const elPen = { type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 100, y: 100 }, { x: 200, y: 200 }] }
+
+  test('拖动画笔元素：命中线段 → pointer 拖拽 → onChange 收到平移后元素（仅松手一次提交）', () => {
+    const onChange = vi.fn()
+    const doodle = { version: 1, width: 600, height: 400, elements: [elPen] }
+    const { container } = render(<DoodleBoard enabled doodle={doodle} onChange={onChange} />)
+    const svg = container.querySelector('svg')
+    mockSvgRect(svg)
+    // 命中折线中点 (150,150)，拖到 (180,170)（dx=30 dy=20）
+    firePointer('pointerdown', svg, { x: 150, y: 150 })
+    firePointer('pointermove', svg, { x: 180, y: 170 })
+    expect(onChange).not.toHaveBeenCalled() // 拖动中不提交（仅本地渲染）
+    firePointer('pointerup', svg, { x: 180, y: 170 })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    const d = lastDoodle(onChange)
+    expect(d.elements).toHaveLength(1)
+    expect(d.elements[0].points).toEqual([{ x: 130, y: 120 }, { x: 230, y: 220 }])
+  })
+
+  test('拖动 text / rect / circle / line / arrow：各类型坐标整体平移', () => {
+    const cases = [
+      { el: { type: 'text', x: 50, y: 80, size: 20, text: '测字', color: '#000' }, hit: [70, 80], check: (e) => ({ x: e.x, y: e.y }), want: { x: 70, y: 110 } },
+      { el: { type: 'rect', x: 50, y: 50, w: 100, h: 60, strokeWidth: 4, color: '#000' }, hit: [80, 80], check: (e) => ({ x: e.x, y: e.y }), want: { x: 70, y: 80 } },
+      { el: { type: 'circle', cx: 100, cy: 100, r: 30, strokeWidth: 4, color: '#000' }, hit: [100, 100], check: (e) => ({ cx: e.cx, cy: e.cy }), want: { cx: 120, cy: 130 } },
+      { el: { type: 'line', x1: 10, y1: 10, x2: 90, y2: 90, strokeWidth: 4, color: '#000' }, hit: [50, 50], check: (e) => ({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 }), want: { x1: 30, y1: 40, x2: 110, y2: 120 } },
+      { el: { type: 'arrow', x1: 10, y1: 10, x2: 90, y2: 90, strokeWidth: 4, color: '#000' }, hit: [50, 50], check: (e) => ({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 }), want: { x1: 30, y1: 40, x2: 110, y2: 120 } },
+    ]
+    for (const c of cases) {
+      const onChange = vi.fn()
+      const doodle = { version: 1, width: 600, height: 400, elements: [c.el] }
+      const { container } = render(<DoodleBoard enabled doodle={doodle} onChange={onChange} />)
+      const svg = container.querySelector('svg')
+      mockSvgRect(svg)
+      // 命中点 → 拖 (+20,+30) → 松手
+      firePointer('pointerdown', svg, { x: c.hit[0], y: c.hit[1] })
+      firePointer('pointermove', svg, { x: c.hit[0] + 20, y: c.hit[1] + 30 })
+      firePointer('pointerup', svg, { x: c.hit[0] + 20, y: c.hit[1] + 30 })
+      expect(onChange).toHaveBeenCalledTimes(1)
+      const got = c.check(lastDoodle(onChange).elements[0])
+      expect(got).toEqual(c.want)
+      cleanup()
+    }
+  })
+
+  test('鼠标工具未命中元素：pointer 拖拽不产生任何变化（可滚动页面）', () => {
+    const onChange = vi.fn()
+    const doodle = { version: 1, width: 600, height: 400, elements: [elPen] }
+    const { container } = render(<DoodleBoard enabled doodle={doodle} onChange={onChange} />)
+    const svg = container.querySelector('svg')
+    mockSvgRect(svg)
+    firePointer('pointerdown', svg, { x: 10, y: 10 })
+    firePointer('pointermove', svg, { x: 40, y: 40 })
+    firePointer('pointerup', svg, { x: 40, y: 40 })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  test('拖动中 SVG 锁手势 + 抓取光标；松手恢复鼠标默认', () => {
+    const onChange = vi.fn()
+    const doodle = { version: 1, width: 600, height: 400, elements: [elPen] }
+    const { container } = render(<DoodleBoard enabled doodle={doodle} onChange={onChange} />)
+    const svg = container.querySelector('svg')
+    mockSvgRect(svg)
+    expect(svg.getAttribute('class')).toContain('touch-auto') // 默认可滚动
+    firePointer('pointerdown', svg, { x: 150, y: 150 })
+    firePointer('pointermove', svg, { x: 160, y: 160 })
+    expect(svg.getAttribute('class')).toContain('touch-none') // 拖动中锁手势
+    expect(svg.getAttribute('class')).toContain('cursor-grabbing')
+    firePointer('pointerup', svg, { x: 160, y: 160 })
+    expect(svg.getAttribute('class')).toContain('touch-auto')
+    expect(svg.getAttribute('class')).toContain('cursor-default')
+  })
+})
+
+
+describe('DoodleBoard 2026-08-10（圆形形状控制点）', () => {
+  const circle = { type: 'circle', cx: 100, cy: 100, r: 30, strokeWidth: 4, color: '#000' }
+  const mk = (els) => ({ version: 1, width: 600, height: 400, elements: els })
+  const svgOf = (container) => {
+    const svg = container.querySelector('svg')
+    mockSvgRect(svg)
+    return svg
+  }
+
+  test('鼠标工具单击圆形 → 显示形状控制点；点空白/切工具清除', () => {
+    const { container } = render(<DoodleBoard enabled doodle={mk([circle])} onChange={vi.fn()} />)
+    const svg = svgOf(container)
+    expect(screen.queryByTestId('circle-handles')).toBeNull()
+    firePointer('pointerdown', svg, { x: 100, y: 100 }) // 命中圆心
+    firePointer('pointerup', svg, { x: 100, y: 100 }) // 原地松手不移动
+    expect(screen.getByTestId('circle-handles')).toBeTruthy()
+    // 点空白清除选中
+    firePointer('pointerdown', svg, { x: 500, y: 300 })
+    firePointer('pointerup', svg, { x: 500, y: 300 })
+    expect(screen.queryByTestId('circle-handles')).toBeNull()
+    // 重新选中后切换工具清除
+    firePointer('pointerdown', svg, { x: 100, y: 100 })
+    firePointer('pointerup', svg, { x: 100, y: 100 })
+    expect(screen.getByTestId('circle-handles')).toBeTruthy()
+    fireEvent.click(screen.getByText('画笔'))
+    expect(screen.queryByTestId('circle-handles')).toBeNull()
+  })
+
+  test('拖右侧控制点调宽：rx 30 → 60（拖动中不提交，松手一次提交）', () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={mk([circle])} onChange={onChange} />)
+    const svg = svgOf(container)
+    firePointer('pointerdown', svg, { x: 100, y: 100 })
+    firePointer('pointerup', svg, { x: 100, y: 100 })
+    const rxH = document.querySelector('[data-handle="rx"]')
+    expect(rxH).toBeTruthy()
+    firePointer('pointerdown', rxH, { x: 130, y: 100 }) // 手柄在 (130,100)
+    firePointer('pointermove', rxH, { x: 160, y: 100 })
+    expect(onChange).not.toHaveBeenCalled()
+    firePointer('pointerup', rxH, { x: 160, y: 100 })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(lastDoodle(onChange).elements[0].rx).toBe(60)
+  })
+
+  test('拖底部控制点调高：ry 30 → 50', () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={mk([circle])} onChange={onChange} />)
+    const svg = svgOf(container)
+    firePointer('pointerdown', svg, { x: 100, y: 100 })
+    firePointer('pointerup', svg, { x: 100, y: 100 })
+    const ryH = document.querySelector('[data-handle="ry"]')
+    firePointer('pointerdown', ryH, { x: 100, y: 130 })
+    firePointer('pointermove', ryH, { x: 100, y: 150 })
+    firePointer('pointerup', ryH, { x: 100, y: 150 })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(lastDoodle(onChange).elements[0].ry).toBe(50)
+  })
+
+  test('拖旋转控制点：rotation 0 → 90（上方手柄拖到右侧）', () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={mk([circle])} onChange={onChange} />)
+    const svg = svgOf(container)
+    firePointer('pointerdown', svg, { x: 100, y: 100 })
+    firePointer('pointerup', svg, { x: 100, y: 100 })
+    const rotH = document.querySelector('[data-handle="rot"]')
+    expect(rotH).toBeTruthy()
+    // 旋转手柄初始 (100, 100-30-24=46)；拖到 (130,100) → 从 -90° 到 0° → rotation=90
+    firePointer('pointerdown', rotH, { x: 100, y: 46 })
+    firePointer('pointermove', rotH, { x: 130, y: 100 })
+    firePointer('pointerup', rotH, { x: 130, y: 100 })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(lastDoodle(onChange).elements[0].rotation).toBe(90)
+  })
+
+  test('旧数据圆形（仅 r）：选中后控制点可用，rx 调整落 rx 字段', () => {
+    const onChange = vi.fn()
+    const { container } = render(<DoodleBoard enabled doodle={mk([circle])} onChange={onChange} />)
+    const svg = svgOf(container)
+    firePointer('pointerdown', svg, { x: 100, y: 100 })
+    firePointer('pointerup', svg, { x: 100, y: 100 })
+    const rxH = document.querySelector('[data-handle="rx"]')
+    firePointer('pointerdown', rxH, { x: 130, y: 100 })
+    firePointer('pointermove', rxH, { x: 140, y: 100 })
+    firePointer('pointerup', rxH, { x: 140, y: 100 })
+    const el = lastDoodle(onChange).elements[0]
+    expect(el.rx).toBe(40)
+    expect(el.r).toBe(30) // 原 r 保留（向后兼容）
+  })
+})

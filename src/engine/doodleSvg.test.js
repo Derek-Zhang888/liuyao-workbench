@@ -16,6 +16,8 @@ import {
   doodleClear,
   doodleErase,
   arrowHeadSize,
+  hitTestElement,
+  translateElement,
 } from './doodleSvg.js';
 
 /** 完整 6 元素涂鸦样例（schema 见 design §3.1） */
@@ -65,7 +67,7 @@ describe('doodleToSvg', () => {
     expect(svg).toContain('测卦');
     expect(svg).toContain('<rect x="10" y="10" width="80" height="50"');
     expect(svg).toContain('fill="none"'); // rect fill=false → 外框
-    expect(svg).toContain('<circle cx="60" cy="60" r="30"');
+    expect(svg).toContain('<ellipse cx="60" cy="60" rx="30" ry="30"'); // 2026-08-10：circle → ellipse（rx=ry=r）
     expect(svg).toContain('fill="#3498db"'); // circle fill=true → 填充
     expect(svg).toContain('<line x1="0" y1="0" x2="100" y2="100"');
     expect(svg).toContain('<polygon points='); // arrow 箭头
@@ -319,5 +321,111 @@ describe('v0.10 改进建8 #1 箭头随粗细缩放', () => {
     expect(span(thickPts)).toBeGreaterThan(span(thinPts));
     // 默认线宽（缺失）也输出箭头，且尺寸取 arrowHeadSize 默认
     expect(doodleToSvg(mk(undefined))).toContain('<polygon points=');
+  });
+});
+
+describe('hitTestElement 命中检测（2026-08-10 鼠标拖动）', () => {
+  const pt = (x, y) => ({ x, y });
+
+  test('pen：折线上点命中、远离不命中', () => {
+    const el = { type: 'pen', width: 4, points: [{ x: 100, y: 100 }, { x: 200, y: 200 }] };
+    expect(hitTestElement(el, pt(150, 150))).toBe(true);
+    expect(hitTestElement(el, pt(100, 100))).toBe(true);
+    expect(hitTestElement(el, pt(150, 100))).toBe(false);
+  });
+
+  test('pen：单点元素容差内命中', () => {
+    const el = { type: 'pen', width: 4, points: [{ x: 100, y: 100 }] };
+    expect(hitTestElement(el, pt(103, 102))).toBe(true);
+    expect(hitTestElement(el, pt(120, 120))).toBe(false);
+  });
+
+  test('text：文本框内命中、框外不命中', () => {
+    const el = { type: 'text', x: 50, y: 100, size: 20, text: 'liuyao' };
+    expect(hitTestElement(el, pt(60, 100))).toBe(true);
+    expect(hitTestElement(el, pt(100, 92))).toBe(true);
+    expect(hitTestElement(el, pt(200, 100))).toBe(false);
+  });
+
+  test('rect：内部命中、外部不命中', () => {
+    const el = { type: 'rect', x: 50, y: 50, w: 100, h: 60, strokeWidth: 4 };
+    expect(hitTestElement(el, pt(100, 80))).toBe(true);
+    expect(hitTestElement(el, pt(50, 50))).toBe(true);
+    expect(hitTestElement(el, pt(160, 120))).toBe(false);
+  });
+
+  test('circle：圆内命中、圆外不命中', () => {
+    const el = { type: 'circle', cx: 100, cy: 100, r: 30, strokeWidth: 4 };
+    expect(hitTestElement(el, pt(100, 100))).toBe(true);
+    expect(hitTestElement(el, pt(125, 100))).toBe(true);
+    expect(hitTestElement(el, pt(140, 100))).toBe(false);
+  });
+
+  test('line/arrow：线段上命中、远离不命中', () => {
+    for (const type of ['line', 'arrow']) {
+      const el = { type, x1: 0, y1: 0, x2: 100, y2: 0, strokeWidth: 4 };
+      expect(hitTestElement(el, pt(50, 0))).toBe(true);
+      expect(hitTestElement(el, pt(50, 6))).toBe(true);
+      expect(hitTestElement(el, pt(50, 30))).toBe(false);
+    }
+  });
+});
+
+describe('translateElement 平移（2026-08-10 鼠标拖动）', () => {
+  test('pen：全部 points 平移，不改原对象', () => {
+    const el = { type: 'pen', width: 4, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] };
+    const next = translateElement(el, 10, 20);
+    expect(next.points).toEqual([{ x: 11, y: 22 }, { x: 13, y: 24 }]);
+    expect(el.points[0]).toEqual({ x: 1, y: 2 });
+    expect(next).not.toBe(el);
+  });
+
+  test('text/rect：x,y 平移', () => {
+    expect(translateElement({ type: 'text', x: 5, y: 6 }, 3, -2)).toMatchObject({ x: 8, y: 4 });
+    expect(translateElement({ type: 'rect', x: 5, y: 6, w: 10, h: 10 }, -1, 1)).toMatchObject({ x: 4, y: 7, w: 10, h: 10 });
+  });
+
+  test('circle：cx,cy 平移', () => {
+    expect(translateElement({ type: 'circle', cx: 5, cy: 6, r: 10 }, 2, 3)).toMatchObject({ cx: 7, cy: 9, r: 10 });
+  });
+
+  test('line/arrow：两端点平移', () => {
+    expect(translateElement({ type: 'arrow', x1: 0, y1: 0, x2: 10, y2: 20 }, 5, 5)).toMatchObject({ x1: 5, y1: 5, x2: 15, y2: 25 });
+  });
+
+  test('零位移返回等价对象', () => {
+    expect(translateElement({ type: 'line', x1: 1, y1: 2, x2: 3, y2: 4 }, 0, 0)).toMatchObject({ x1: 1, y1: 2, x2: 3, y2: 4 });
+  });
+});
+
+
+describe('circle 椭圆命中与序列化（2026-08-10）', () => {
+  const pt = (x, y) => ({ x, y });
+
+  test('椭圆（rx≠ry）：按椭圆方程命中', () => {
+    const el = { type: 'circle', cx: 100, cy: 100, rx: 60, ry: 20, strokeWidth: 4 };
+    expect(hitTestElement(el, pt(150, 100))).toBe(true); // 水平 rx 内
+    expect(hitTestElement(el, pt(100, 115))).toBe(true); // 垂直 ry 内
+    expect(hitTestElement(el, pt(170, 100))).toBe(false); // 超出 rx（距圆心 70 > 60+容差）
+  });
+
+  test('旋转 90°：长轴转垂直，水平方向变窄', () => {
+    const el = { type: 'circle', cx: 100, cy: 100, rx: 60, ry: 20, rotation: 90, strokeWidth: 4 };
+    expect(hitTestElement(el, pt(100, 150))).toBe(true); // 旋转后长轴在垂直方向
+    expect(hitTestElement(el, pt(150, 100))).toBe(false); // 水平方向超出窄轴（60→20）
+  });
+
+  test('带 rx/ry/rotation：序列化为 ellipse + transform', () => {
+    const d = { version: 1, width: 600, height: 400, elements: [{ type: 'circle', cx: 10, cy: 20, rx: 30, ry: 10, rotation: 45, strokeWidth: 3, color: '#000' }] };
+    const svg = doodleToSvg(d);
+    expect(svg).toContain('<ellipse cx="10" cy="20" rx="30" ry="10"');
+    expect(svg).toContain('transform="rotate(45 10 20)"');
+  });
+
+  test('旧数据（仅 r）：rx=ry=r 且无 transform', () => {
+    const d = { version: 1, width: 600, height: 400, elements: [{ type: 'circle', cx: 10, cy: 20, r: 15, strokeWidth: 3, color: '#000' }] };
+    const svg = doodleToSvg(d);
+    expect(svg).toContain('rx="15" ry="15"');
+    expect(svg).not.toContain('transform=');
   });
 });

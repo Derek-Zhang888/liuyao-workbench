@@ -83,8 +83,15 @@ function elementToSvg(el) {
       return `<rect x="${Number(el.x) || 0}" y="${Number(el.y) || 0}" width="${Number(el.w) || 0}" height="${Number(el.h) || 0}" stroke="${esc(el.color)}" stroke-width="${Number(el.strokeWidth) || 3}" fill="${esc(fill)}"/>`;
     }
     case 'circle': {
+      // 2026-08-10：支持椭圆（rx/ry）与旋转（rotation，绕圆心）；旧数据仅有 r → rx=ry=r
+      const cx = Number(el.cx) || 0;
+      const cy = Number(el.cy) || 0;
+      const rx = el.rx != null ? Number(el.rx) : (Number(el.r) || 0);
+      const ry = el.ry != null ? Number(el.ry) : rx;
+      const rot = Number(el.rotation) || 0;
+      const tf = rot ? ` transform="rotate(${rot} ${cx} ${cy})"` : '';
       const fill = el.fill ? el.color : 'none';
-      return `<circle cx="${Number(el.cx) || 0}" cy="${Number(el.cy) || 0}" r="${Number(el.r) || 0}" stroke="${esc(el.color)}" stroke-width="${Number(el.strokeWidth) || 3}" fill="${esc(fill)}"/>`;
+      return `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"${tf} stroke="${esc(el.color)}" stroke-width="${Number(el.strokeWidth) || 3}" fill="${esc(fill)}"/>`;
     }
     case 'line':
       return `<line x1="${Number(el.x1) || 0}" y1="${Number(el.y1) || 0}" x2="${Number(el.x2) || 0}" y2="${Number(el.y2) || 0}" stroke="${esc(el.color)}" stroke-width="${Number(el.strokeWidth) || 3}" stroke-linecap="round"/>`;
@@ -154,6 +161,108 @@ export function doodleToSvg(doodle) {
  */
 export function doodleToDataUri(doodle) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(doodleToSvg(doodle))}`;
+}
+
+/** 点到线段距离（拖动命中检测用） */
+function distToSeg(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = a.x + t * dx;
+  const qy = a.y + t * dy;
+  return Math.hypot(p.x - qx, p.y - qy);
+}
+
+/**
+ * 命中检测（2026-08-10 鼠标拖动用）：点是否落在元素上。
+ * 各类型口径：pen 按点到折线距离；text 按估算文本框；rect 按包围盒+容差；
+ * circle 按到圆心距离；line/arrow 按点到线段距离。
+ * 容差 = max(线宽, 6)/2 + 4（至少 7px，便于点击）。
+ * @param {object} el 元素对象
+ * @param {object} point {x, y} 画布坐标
+ * @returns {boolean}
+ */
+export function hitTestElement(el, point) {
+  if (!el || !point) return false;
+  const w = Number(el.strokeWidth) || Number(el.width) || 4;
+  const tol = Math.max(w, 6) / 2 + 4;
+  switch (el.type) {
+    case 'pen': {
+      const pts = Array.isArray(el.points) ? el.points : [];
+      if (pts.length === 1) return Math.hypot(point.x - Number(pts[0].x), point.y - Number(pts[0].y)) <= tol;
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (distToSeg(point, pts[i], pts[i + 1]) <= tol) return true;
+      }
+      return false;
+    }
+    case 'text': {
+      const size = Number(el.size) || 20;
+      const tw = String(el.text ?? '').length * size * 0.62;
+      const th = size * 1.4;
+      return point.x >= Number(el.x) - tol && point.x <= Number(el.x) + tw + tol &&
+        point.y >= Number(el.y) - th && point.y <= Number(el.y) + tol;
+    }
+    case 'rect': {
+      const x = Number(el.x) || 0;
+      const y = Number(el.y) || 0;
+      const rw = Math.abs(Number(el.w) || 0);
+      const rh = Math.abs(Number(el.h) || 0);
+      return point.x >= x - tol && point.x <= x + rw + tol && point.y >= y - tol && point.y <= y + rh + tol;
+    }
+    case 'circle': {
+      // 2026-08-10：椭圆（rx/ry）+ 旋转命中。先把点绕圆心逆旋转，再按椭圆方程判断（容差外扩 rx/ry）
+      const cx = Number(el.cx) || 0;
+      const cy = Number(el.cy) || 0;
+      const rx = el.rx != null ? Number(el.rx) : (Number(el.r) || 0);
+      const ry = el.ry != null ? Number(el.ry) : rx;
+      const rad = ((Number(el.rotation) || 0) * Math.PI) / 180;
+      const dx = point.x - cx;
+      const dy = point.y - cy;
+      const c = Math.cos(rad);
+      const s = Math.sin(rad);
+      const lx = dx * c + dy * s; // 逆旋转后的局部 x
+      const ly = -dx * s + dy * c; // 逆旋转后的局部 y
+      const ex = Math.max(rx + tol, 1);
+      const ey = Math.max(ry + tol, 1);
+      return (lx * lx) / (ex * ex) + (ly * ly) / (ey * ey) <= 1;
+    }
+    case 'line':
+    case 'arrow':
+      return distToSeg(point, { x: Number(el.x1), y: Number(el.y1) }, { x: Number(el.x2), y: Number(el.y2) }) <= tol;
+    default:
+      return false;
+  }
+}
+
+/**
+ * 平移元素（2026-08-10 鼠标拖动用）：按类型平移坐标，返回新元素（不修改原对象）。
+ * pen 平移全部 points；text/rect 平移 x,y；circle 平移 cx,cy；line/arrow 平移两端点。
+ * @param {object} el 元素对象
+ * @param {number} dx 水平位移
+ * @param {number} dy 垂直位移
+ * @returns {object} 新元素
+ */
+export function translateElement(el, dx, dy) {
+  if (!el) return el;
+  const ddx = Number(dx) || 0;
+  const ddy = Number(dy) || 0;
+  switch (el.type) {
+    case 'pen':
+      return { ...el, points: (el.points || []).map((p) => ({ x: Number(p.x) + ddx, y: Number(p.y) + ddy })) };
+    case 'text':
+      return { ...el, x: Number(el.x) + ddx, y: Number(el.y) + ddy };
+    case 'rect':
+      return { ...el, x: Number(el.x) + ddx, y: Number(el.y) + ddy };
+    case 'circle':
+      return { ...el, cx: Number(el.cx) + ddx, cy: Number(el.cy) + ddy };
+    case 'line':
+    case 'arrow':
+      return { ...el, x1: Number(el.x1) + ddx, y1: Number(el.y1) + ddy, x2: Number(el.x2) + ddx, y2: Number(el.y2) + ddy };
+    default:
+      return el;
+  }
 }
 
 /** 取 redo 栈（无则空数组） */

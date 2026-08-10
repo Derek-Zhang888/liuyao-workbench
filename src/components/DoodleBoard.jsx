@@ -22,7 +22,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { doodleUndo, doodleRedo, doodleCommit, doodleClear, doodleErase, arrowHeadSize } from '../engine/doodleSvg.js'
+import { doodleUndo, doodleRedo, doodleCommit, doodleClear, doodleErase, arrowHeadSize, hitTestElement, translateElement } from '../engine/doodleSvg.js'
 
 const TOOLS = [
   // 鼠标（2026-08-09）：恢复默认指针交互，不绘制、允许触摸滚动页面——
@@ -102,18 +102,25 @@ function SvgElement({ el, draft = false }) {
           fill={fill}
         />
       )
-    case 'circle':
+    case 'circle': {
+      // 2026-08-10：椭圆（rx/ry）+ 旋转（绕圆心）；旧数据仅有 r → rx=ry=r
+      const rx = el.rx != null ? Number(el.rx) : (Number(el.r) || 0)
+      const ry = el.ry != null ? Number(el.ry) : rx
+      const rot = Number(el.rotation) || 0
       return (
-        <circle
+        <ellipse
           className={cls}
           cx={el.cx}
           cy={el.cy}
-          r={el.r}
+          rx={rx}
+          ry={ry}
+          transform={rot ? `rotate(${rot} ${el.cx} ${el.cy})` : undefined}
           stroke={el.color}
           strokeWidth={el.strokeWidth}
           fill={fill}
         />
       )
+    }
     case 'line':
       return (
         <line
@@ -179,6 +186,23 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const [fill, setFill] = useState(false)
   const [draft, setDraft] = useState(null) // 绘制中元素
   const [textDraft, setTextDraft] = useState(null) // {x, y, value}
+  // 2026-08-10：鼠标工具拖动元素状态 {index, dx, dy, startX, startY}；null=未拖动。
+  // 拖动中仅本地渲染（不写回 doodle），松手才一次性提交（清空 redo 栈，与新增动作同语义）
+  const [dragSel, setDragSel] = useState(null)
+  // 2026-08-10：圆形选中态（鼠标工具单击圆形 → 显示形状控制点：右/下/旋转手柄）。
+  // 仅 tool==='mouse' 时有效；切工具/点空白/选其他元素时清除
+  const [selectSel, setSelectSel] = useState(null)
+  // 2026-08-10：形状调整拖动 {mode:'rx'|'ry'|'rot', index, cx, cy, rx0, ry0, rot0, startX, startY}
+  const [shapeDrag, setShapeDrag] = useState(null)
+  // 2026-08-10：触摸设备（手机/平板，coarse pointer）→ 控制点手柄加大（r12+命中20px），桌面保持 r7；
+  // 手指点击精度低，命中区必须足够大才能按住
+  const [isCoarse] = useState(() => {
+    try {
+      return window.matchMedia?.('(pointer: coarse)').matches ?? false
+    } catch (_) {
+      return false
+    }
+  })
   const textInputRef = useRef(null) // 文字浮层 input（显式 focus 兜底，见下方 effect）
   // 工具栏位置（v0.10 改进建7 #1 可拖动，sessionStorage 持久；改进建9 #1 改 fixed 视口级定位）：
   // 无已保存位置 → null（挂载后按画布容器实测位置默认，见 useLayoutEffect）
@@ -260,10 +284,12 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   /** 工具栏当前渲染位置：无保存值（首次挂载未测量完成）时兜底视口 (8,8) */
   const tp = toolbarPos ?? { x: 8, y: 8 }
 
-  /** 覆盖层光标与触摸行为（2026-08-09）：鼠标工具恢复默认（cursor-default + touch-auto 允许页面滚动），
-   *  其他绘制工具锁手势（touch-none）保证绘制流畅 */
-  const cursorCls = tool === 'mouse' ? 'cursor-default' : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
-  const touchCls = tool === 'mouse' ? 'touch-auto' : 'touch-none'
+  /** 覆盖层光标与触摸行为（2026-08-09：鼠标工具恢复默认指针交互，触摸可滚动页面；
+   *  2026-08-10：鼠标工具命中元素拖动中 → 锁手势防页面滚动 + 抓取光标） */
+  const cursorCls = tool === 'mouse'
+    ? (dragSel ? 'cursor-grabbing' : 'cursor-default')
+    : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
+  const touchCls = tool === 'mouse' ? (dragSel ? 'touch-none' : 'touch-auto') : 'touch-none'
 
   /** pointer 事件 → 画布坐标（viewBox 与容器像素映射，preserveAspectRatio="none" 下按比例换算） */
   const getPoint = (e) => {
@@ -271,6 +297,41 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     const sx = rect.width ? width / rect.width : 1
     const sy = rect.height ? height / rect.height : 1
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
+  }
+
+  /** 圆形半径（2026-08-10：兼容旧 r 字段，新数据 rx/ry 优先） */
+  const circleRx = (el) => (el.rx != null ? Number(el.rx) : (Number(el.r) || 0))
+  const circleRy = (el) => (el.ry != null ? Number(el.ry) : circleRx(el))
+
+  /** 圆形局部偏移 (lx,ly) → 画布坐标（应用 rotation 绕圆心旋转） */
+  const rotPoint = (el, lx, ly) => {
+    const rad = ((Number(el.rotation) || 0) * Math.PI) / 180
+    const c = Math.cos(rad)
+    const s = Math.sin(rad)
+    return { x: Number(el.cx) + lx * c - ly * s, y: Number(el.cy) + lx * s + ly * c }
+  }
+
+  /** 画布点 → 圆形局部坐标（逆旋转，形状调整用） */
+  const invRot = (el, p) => {
+    const rad = ((Number(el.rotation) || 0) * Math.PI) / 180
+    const c = Math.cos(rad)
+    const s = Math.sin(rad)
+    const dx = p.x - Number(el.cx)
+    const dy = p.y - Number(el.cy)
+    return { x: dx * c + dy * s, y: -dx * s + dy * c }
+  }
+
+  /** 圆形元素在形状调整拖动中的临时值（shapeDrag 存在时用于渲染/控制点坐标） */
+  const shapePreview = (el, k) => {
+    if (shapeDrag && shapeDrag.index === k && el.type === 'circle') {
+      return {
+        ...el,
+        rx: shapeDrag.rx1 != null ? shapeDrag.rx1 : circleRx(el),
+        ry: shapeDrag.ry1 != null ? shapeDrag.ry1 : circleRy(el),
+        rotation: shapeDrag.rot1 != null ? shapeDrag.rot1 : (Number(el.rotation) || 0),
+      }
+    }
+    return el
   }
 
   /** 提交元素（新元素追加到末尾，清空 redo 栈） */
@@ -389,9 +450,77 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     } catch (_) { /* 静默 */ }
   }
 
+  /** 2026-08-10：形状控制点按下（右=调宽 rx / 下=调高 ry / 上=旋转）：
+   *  stopPropagation 避免触发 SVG 主体拖动；pointer capture 持续跟手 */
+  const onShapeDown = (e, index, mode, el) => {
+    e.preventDefault()
+    e.stopPropagation()
+    try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
+    setShapeDrag({
+      mode,
+      index,
+      cx: Number(el.cx),
+      cy: Number(el.cy),
+      rx0: circleRx(el),
+      ry0: circleRy(el),
+      rot0: Number(el.rotation) || 0,
+      startX: e.clientX,
+      startY: e.clientY,
+    })
+  }
+  const onShapeMove = (e) => {
+    const d = shapeDrag
+    if (!d) return
+    const p = getPoint(e)
+    if (d.mode === 'rx' || d.mode === 'ry') {
+      // 逆旋转到局部坐标 → 取水平/垂直分量绝对值（最小 4px 防压扁为 0）
+      const loc = invRot({ cx: d.cx, cy: d.cy, rotation: d.rot0 }, p)
+      const v = Math.max(4, Math.abs(d.mode === 'rx' ? loc.x : loc.y))
+      setShapeDrag(d.mode === 'rx' ? { ...d, rx1: v } : { ...d, ry1: v })
+    } else if (d.mode === 'rot') {
+      const ang = Math.atan2(p.y - d.cy, p.x - d.cx) * (180 / Math.PI)
+      const startAng = Math.atan2(d.startY - d.cy, d.startX - d.cx) * (180 / Math.PI)
+      setShapeDrag({ ...d, rot1: d.rot0 + (ang - startAng) })
+    }
+  }
+  const onShapeUp = () => {
+    const d = shapeDrag
+    if (!d) return
+    const el = elements[d.index]
+    if (el && el.type === 'circle') {
+      let nextEl
+      if (d.mode === 'rx') nextEl = { ...el, rx: d.rx1 != null ? d.rx1 : d.rx0 }
+      else if (d.mode === 'ry') nextEl = { ...el, ry: d.ry1 != null ? d.ry1 : d.ry0 }
+      else if (d.mode === 'rot') {
+        const rot = Math.round(((d.rot1 != null ? d.rot1 : d.rot0) % 360 + 360) % 360)
+        nextEl = { ...el, rotation: rot }
+      }
+      const next = [...elements]
+      next[d.index] = nextEl
+      onChange?.({ ...doodle, elements: next, redo: [] })
+    }
+    setShapeDrag(null)
+  }
+
   const handlePointerDown = (e) => {
-    // 鼠标工具（2026-08-09）：不绘制，恢复默认交互（触摸可滚动页面）；橡皮擦也不启动绘制，交由元素 onClick 删除
-    if (tool === 'mouse' || tool === 'eraser') return
+    // 鼠标工具（2026-08-09 起默认）：未命中元素时不绘制、恢复默认交互（触摸可滚动页面）；
+    // 2026-08-10：命中已有元素 → 开始拖动（pointer capture 持续跟手）；命中圆形额外置为选中态（显示形状控制点）
+    if (tool === 'mouse') {
+      const p = getPoint(e)
+      for (let k = elements.length - 1; k >= 0; k--) {
+        if (hitTestElement(elements[k], p)) {
+          e.preventDefault()
+          try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
+          setSelectSel(elements[k].type === 'circle' ? k : null)
+          setDragSel({ index: k, dx: 0, dy: 0, startX: p.x, startY: p.y })
+          return
+        }
+      }
+      setSelectSel(null)
+      return
+    }
+    // 橡皮擦：不启动绘制，交由元素 onClick 删除
+    if (tool === 'eraser') return
     if (tool === 'text') {
       // 改进建9 #1 修复「点文字工具后没有输入框」：阻止 pointerdown 默认行为。
       // 浏览器默认会在 pointerdown 后将焦点移到事件目标（SVG/body），使刚 autoFocus
@@ -416,6 +545,12 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   }
 
   const handlePointerMove = (e) => {
+    // 2026-08-10：拖动中实时更新位移（仅本地 state，不写回 doodle）
+    if (dragSel) {
+      const p = getPoint(e)
+      setDragSel((s) => (s ? { ...s, dx: p.x - s.startX, dy: p.y - s.startY } : s))
+      return
+    }
     if (!draft) return
     const p = getPoint(e)
     if (draft.type === 'pen') {
@@ -441,6 +576,17 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   }
 
   const handlePointerUp = () => {
+    // 2026-08-10：拖动结束 → 一次性提交平移后的元素（清空 redo 栈，与新增动作同语义）
+    if (dragSel) {
+      const el = elements[dragSel.index]
+      if (el && (dragSel.dx !== 0 || dragSel.dy !== 0)) {
+        const next = [...elements]
+        next[dragSel.index] = translateElement(el, dragSel.dx, dragSel.dy)
+        onChange?.({ ...doodle, elements: next, redo: [] })
+      }
+      setDragSel(null)
+      return
+    }
     if (!draft) return
     commit(draft)
   }
@@ -482,9 +628,51 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
               onClick={tool === 'eraser' ? (e) => eraseEl(k, e) : undefined}
               className={tool === 'eraser' ? 'cursor-pointer' : undefined}
             >
-              <SvgElement el={el} />
+              {/* 2026-08-10：拖动中的元素实时平移显示（dx/dy 临时位移）；选中圆形在形状调整中显示临时 rx/ry/rot */}
+              <SvgElement
+                el={
+                  dragSel && dragSel.index === k
+                    ? translateElement(el, dragSel.dx, dragSel.dy)
+                    : shapePreview(el, k)
+                }
+              />
             </g>
           ))}
+          {/* 2026-08-10：鼠标工具选中圆形 → 形状控制点（右中=调宽 / 下中=调高 / 上方=旋转） */}
+          {tool === 'mouse' && !dragSel && selectSel != null && elements[selectSel] && elements[selectSel].type === 'circle'
+            ? (() => {
+                const selEl = shapePreview(elements[selectSel], selectSel)
+                const rx = Math.max(circleRx(selEl), 4)
+                const ry = Math.max(circleRy(selEl), 4)
+                const right = rotPoint(selEl, rx, 0)
+                const bottom = rotPoint(selEl, 0, ry)
+                const rotH = rotPoint(selEl, 0, -ry - 24)
+                const handle = (pos, mode, title) => (
+                  <g
+                    key={mode}
+                    data-handle={mode}
+                    onPointerDown={(e) => onShapeDown(e, selectSel, mode, elements[selectSel])}
+                    onPointerMove={onShapeMove}
+                    onPointerUp={onShapeUp}
+                    onPointerCancel={onShapeUp}
+                    className="cursor-pointer"
+                  >
+                    {/* 透明命中区：触摸设备 20px / 桌面 14px（必须大于可见手柄，手指才按得中） */}
+                    <circle cx={pos.x} cy={pos.y} r={isCoarse ? 20 : 14} fill="transparent" />
+                    <circle cx={pos.x} cy={pos.y} r={isCoarse ? 12 : 7} fill="#ffffff" stroke="#5b6be0" strokeWidth={2} />
+                    <circle cx={pos.x} cy={pos.y} r={isCoarse ? 3.5 : 2.5} fill="#5b6be0" />
+                    <title>{title}</title>
+                  </g>
+                )
+                return (
+                  <g data-testid="circle-handles">
+                    {handle(right, 'rx', '拖动调整宽度')}
+                    {handle(bottom, 'ry', '拖动调整高度')}
+                    {handle(rotH, 'rot', '拖动旋转')}
+                  </g>
+                )
+              })()
+            : null}
           {draft ? <SvgElement el={draft} draft /> : null}
         </svg>
 
@@ -584,7 +772,7 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
             <button
               key={t.id}
               type="button"
-              onClick={() => setTool(t.id)}
+              onClick={() => { setTool(t.id); setSelectSel(null); setShapeDrag(null) }}
               className={toolBtnCls(tool === t.id)}
             >
               {t.label}
