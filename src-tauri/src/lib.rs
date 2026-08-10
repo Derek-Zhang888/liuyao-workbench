@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, WindowEvent};
 
+mod android_export;
+
 #[cfg(desktop)]
 use tauri::{
   menu::{Menu, MenuItem},
@@ -55,6 +57,7 @@ pub fn run() {
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_opener::init())
+    .plugin(android_export::init())
     .manage(CloseBehavior(AtomicBool::new(true)))
     .setup(|app| {
       if cfg!(debug_assertions) {

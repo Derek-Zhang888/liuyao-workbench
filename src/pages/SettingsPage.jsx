@@ -72,6 +72,8 @@ export default function SettingsPage() {
   const [closeBehavior, setCloseBehaviorState] = useState('tray') // v1.0.1：关闭窗口行为 tray/quit（默认托盘）
   const [isDesktopEnv, setIsDesktopEnv] = useState(false) // 是否 Tauri 桌面端（Windows/macOS/Linux，不含 Android）
   const [isAndroidEnv, setIsAndroidEnv] = useState(false) // 是否 Android 端（2026-08-09：屏幕适配选项）
+  // 2026-08-10：安卓导出位置（'default'=公共 Download/六爻工作台，'pick'=每次选择保存位置）
+  const [androidExportMode, setAndroidExportMode] = useState('default')
   const [displayMode, setDisplayModeSel] = useState(() => getDisplayMode()) // 屏幕适配：full 全面屏 / notch 刘海屏（仅 Android）
   const [lastBackup, setLastBackup] = useState(null) // v1.0.1：最近一次备份结果 {fileName, path, at, usedDefault, count, tagsCount}
   const [pathMsg, setPathMsg] = useState(null) // v1.0.1：自定义导出路径卡片内反馈 {type:'ok'|'err', text}
@@ -136,6 +138,13 @@ export default function SettingsPage() {
         try {
           const cb = await getSetting('close-behavior')
           setCloseBehaviorState(cb === 'quit' ? 'quit' : 'tray')
+        } catch (_) {}
+      }
+      // 2026-08-10：安卓导出位置（默认公共 Download/六爻工作台，可选每次选择）
+      if (isAndroid()) {
+        try {
+          const m = await getSetting('export-android-mode')
+          if (m) setAndroidExportMode(m)
         } catch (_) {}
       }
       refresh()
@@ -697,6 +706,44 @@ export default function SettingsPage() {
                 onClick={() => handleCloseBehavior(o.value)}
                 className={`flex min-w-[160px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
                   closeBehavior === o.value
+                    ? 'border-primary bg-primarySoft text-primary shadow-card1'
+                    : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
+                }`}
+              >
+                <span>
+                  <span className="block font-medium">{o.label}</span>
+                  <span className="block text-xs opacity-75">{o.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 卡片 2.7b：安卓导出位置（2026-08-10，仅 Android：公共下载目录 or 每次选择） */}
+      {isAndroidEnv && (
+        <section className="card space-y-3 rounded-xl border border-border bg-panel p-5">
+          <h2 className="text-base font-medium text-gold">导出位置</h2>
+          <p className="text-sm text-muted">
+            默认导出到系统公共「下载/六爻工作台」目录——坚果云等同步 App 可直接访问，方便与电脑端同步卦例；
+            也可改为每次导出时选择保存位置。
+          </p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="安卓导出位置">
+            {[
+              { value: 'default', label: '下载/六爻工作台（推荐）', desc: '自动保存，同步 App 可访问' },
+              { value: 'pick', label: '每次选择位置', desc: '导出时弹系统保存框' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={androidExportMode === o.value}
+                onClick={() => {
+                  setAndroidExportMode(o.value)
+                  setSetting('export-android-mode', o.value).catch(() => {})
+                }}
+                className={`flex min-w-[160px] flex-1 items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm transition-all ${
+                  androidExportMode === o.value
                     ? 'border-primary bg-primarySoft text-primary shadow-card1'
                     : 'border-border bg-panel2 text-muted hover:border-muted hover:text-text'
                 }`}

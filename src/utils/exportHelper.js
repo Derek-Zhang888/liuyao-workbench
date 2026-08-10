@@ -9,7 +9,7 @@
  * 所有返回均携带 message：成功=完整保存路径，取消=已取消保存，失败=原因。
  * 同时返回 path（完整文件路径）和 dir（所在目录），便于 UI 显示与「打开目录」。
  */
-import { isTauri, writeToDir, getDefaultExportDir, saveFileDialog } from './tauriBridge.js'
+import { isTauri, isAndroid, writeToDir, getDefaultExportDir, saveFileDialog, androidExportDefault, androidExportPick } from './tauriBridge.js'
 import { getSetting } from '../db/settingsRepo.js'
 
 /** 触发浏览器下载（Web fallback） */
@@ -41,6 +41,32 @@ function dirOfPath(filePath) {
  * @param {object} [filters] 保存对话框过滤器 { name, extensions: [] }
  */
 export async function saveExport(kind, fileName, content, mime, filters) {
+  // 2026-08-10 安卓分支：默认导出到公共 Download/六爻工作台（MediaStore，坚果云等可同步）；
+  // 设置页可选「每次选择保存位置」（SAF CreateDocument 弹系统保存框）。
+  // 不再落入 app data 沙盒目录——这是安卓端数据同步的前提。
+  if (isAndroid()) {
+    let mode = 'default'
+    try {
+      mode = (await getSetting('export-android-mode')) || 'default'
+    } catch (_) {}
+    const fn = mode === 'pick' ? androidExportPick : androidExportDefault
+    try {
+      const path = await fn(fileName, content)
+      return {
+        ok: true,
+        path,
+        dir: mode === 'pick' ? '选择的位置' : '下载/六爻工作台',
+        usedDefault: mode !== 'pick',
+        message: mode === 'pick' ? '已导出' : '已导出到 下载/六爻工作台',
+      }
+    } catch (e) {
+      // 2026-08-10：透传真实错误（ACL 拒绝 / MediaStore 失败 / 用户取消等），
+      // 不再硬编码「无法写入所选位置」；取消选择不算失败
+      const msg = e && e.message ? e.message : String(e)
+      if (msg.includes('已取消')) return { ok: false, message: '已取消保存' }
+      return { ok: false, message: msg.startsWith('导出失败') ? msg : `导出失败：${msg}` }
+    }
+  }
   if (isTauri()) {
     // 1) 读自定义路径设置（md → 'export-path-md'，backup → 'export-path-backup'）
     const key = kind === 'md' ? 'export-path-md' : 'export-path-backup'

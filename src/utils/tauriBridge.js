@@ -54,6 +54,48 @@ export async function setCloseBehavior(toTray) {
   }
 }
 
+/** 内容 → base64（字符串按 UTF-8 编码，中文安全；二进制直接转换；大块分片防栈溢出） */
+function toBase64(content) {
+  const bytes = content instanceof Uint8Array ? content : new TextEncoder().encode(String(content))
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
+/**
+ * 安卓导出到公共 Download/六爻工作台（MediaStore，免权限；坚果云等同步 App 可访问）。
+ * 2026-08-10：解决安卓端导出落 app data 沙盒目录、同步工具无法访问的问题。
+ * @param {string} fileName 文件名（含扩展名）
+ * @param {string|Uint8Array} content 文件内容
+ * @returns {Promise<string|null>} content URI 字符串；非 Android 返回 null。
+ * 失败时抛出 Error（携带 Rust/Kotlin 侧真实错误信息，2026-08-10 改为不吞错，
+ * 之前统一吞成 null 导致 UI 只能显示硬编码「无法写入所选位置」，无法定位根因）。
+ */
+export async function androidExportDefault(fileName, content) {
+  if (!isAndroid()) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  return await invoke('plugin:androidExportPlugin|save_default', {
+    fileName,
+    content: toBase64(content),
+  })
+}
+
+/**
+ * 安卓导出弹系统「保存到」选择器（SAF CreateDocument），用户选任意位置。
+ * @returns {Promise<string|null>} content URI 字符串；非 Android 返回 null；取消/失败抛 Error
+ */
+export async function androidExportPick(fileName, content) {
+  if (!isAndroid()) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  return await invoke('plugin:androidExportPlugin|save_pick', {
+    fileName,
+    content: toBase64(content),
+  })
+}
+
 /** 启动时读取持久化的关闭窗口行为并通知 Rust（默认托盘）；非 Tauri 环境静默跳过 */
 export async function initCloseBehavior() {
   if (!isTauri()) return
