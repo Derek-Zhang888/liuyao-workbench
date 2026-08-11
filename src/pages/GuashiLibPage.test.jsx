@@ -304,8 +304,8 @@ describe('GuashiLibPage 排序（v0.10 改进建8 #3）', () => {
     renderPage('/lib?tags=占病&tags=工作&sort=tag-match')
     await screen.findByText('双标签')
     expect(screen.getByLabelText(/排序/).value).toBe('tag-match')
-    // 取消一个标签 → 只剩 1 个 → 排序自动跳回创建时间新→旧（URL 一并改写）
-    fireEvent.click(screen.getAllByTitle('取消筛选')[0])
+    // 等标签加载完成（选中态 title=取消筛选）再取消；getAllByTitle 不加等待会因 listTags 异步而 flaky
+    fireEvent.click((await waitFor(() => screen.getAllByTitle('取消筛选')))[0])
     await waitFor(() => expect(screen.getByLabelText(/排序/).value).toBe('created-desc'))
     expect(screen.getByRole('option', { name: '最符合标签' }).disabled).toBe(true)
   })

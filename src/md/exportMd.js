@@ -407,15 +407,16 @@ function section(title, content) {
 }
 
 /**
- * 涂鸦节（v0.2 功能 A）：doodle 非空时生成
- *   `![涂鸦](data:image/svg+xml;utf8,...)` 图片行 + ```json 元数据块（可逆还原源）
+ * 涂鸦节（v0.2 功能 A；v1.2.0 节名参数化）：
+ *   `![节名](data:image/svg+xml;utf8,...)` 图片行 + ```json 元数据块（可逆还原源）
  * 空/缺省返回 ''（旧卦例无涂鸦时跳过该节）。
+ * @param {string} title 节名（'涂鸦（电脑）' / '涂鸦（手机）'）
  */
-function renderDoodle(doodle) {
+function renderDoodle(title, doodle) {
   if (!doodle || !Array.isArray(doodle.elements) || doodle.elements.length === 0) return '';
   const dataUri = doodleToDataUri(doodle);
   const json = JSON.stringify(doodle);
-  return `![涂鸦](${dataUri})\n\n\`\`\`json\n${json}\n\`\`\``;
+  return `![${title}](${dataUri})\n\n\`\`\`json\n${json}\n\`\`\``;
 }
 
 /**
@@ -441,11 +442,12 @@ export function guashiToMd(g) {
 
   // 地支分析（功能一）：dizhiAnalysis 非空时在盘面后追加独立小节；旧快照无此字段则省略
   const dizhi = renderDizhiAnalysis(rec.panSnapshot?.dizhiAnalysis ?? null);
-  // 涂鸦节（v0.2 功能 A）：doodle 非空时在盘面后、地支分析前
-  const doodleText = renderDoodle(rec.doodle);
+  // 涂鸦节（v0.2 功能 A；v1.2.0 拆两节：电脑/手机各一套独立涂鸦）
+  const doodlePcText = renderDoodle('涂鸦（电脑）', rec.doodle);
+  const doodleMobileText = renderDoodle('涂鸦（手机）', rec.doodleMobile);
   // 背景节（v0.2 功能 D）：background 非空时在断语前
   const background = rec.background ?? '';
-  // 节顺序（v0.2，涂鸦移最后 2026-08-09）：盘面→地支分析→背景→断语→应期→反馈→备注→涂鸦；
+  // 节顺序（v0.2，涂鸦移最后 2026-08-09）：盘面→地支分析→背景→断语→应期→反馈→备注→涂鸦（电脑）→涂鸦（手机）；
   // 涂鸦数据放文件最后（占断内容之后）；importMd 按节名识别位置无关，导入恢复不受影响
   const body = [
     section('盘面', renderPan(rec.panSnapshot, rec)),
@@ -456,7 +458,8 @@ export function guashiToMd(g) {
     // v0.10 建议4 #6：反馈/备注 位置互换
     section('反馈', rec.fankui ?? ''),
     section('备注', rec.beizhu ?? ''),
-    ...(doodleText ? [section('涂鸦', doodleText)] : []),
+    ...(doodlePcText ? [section('涂鸦（电脑）', doodlePcText)] : []),
+    ...(doodleMobileText ? [section('涂鸦（手机）', doodleMobileText)] : []),
   ].join('\n\n');
 
   return `---\n${FM_GUIDE}\n${fm}\n---\n\n# ${rec.title ?? ''}\n\n${body}\n`;

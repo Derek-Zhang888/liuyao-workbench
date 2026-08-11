@@ -134,8 +134,8 @@ export function isEmptyDoodle(doodle) {
 
 /**
  * doodle JSON → SVG markup 字符串
- * 根元素 viewBox 与画布尺寸一致（preserveAspectRatio="xMidYMid meet" 与 DoodleBoard 覆盖层同口径，
- * 等比缩放居中，容器比例不同时不变形；坐标 1:1 还原）；内嵌 <metadata><![CDATA[原始JSON]]></metadata> 供导入还原。
+ * 根元素 viewBox 与画布尺寸一致（preserveAspectRatio="none" 与 DoodleBoard 覆盖层同口径，
+ * 坐标 1:1 还原）；内嵌 <metadata><![CDATA[原始JSON]]></metadata> 供导入还原。
  * @param {object} doodle 涂鸦对象
  * @returns {string} SVG markup
  */
@@ -147,7 +147,7 @@ export function doodleToSvg(doodle) {
   const body = elements.map((el) => elementToSvg(el)).join('\n  ');
   const meta = cdataSafe(JSON.stringify({ ...d, width, height }));
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">` +
     `\n  <metadata><![CDATA[${meta}]]></metadata>` +
     (body ? `\n  ${body}` : '') +
     '\n</svg>'

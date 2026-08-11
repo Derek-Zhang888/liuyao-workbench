@@ -245,12 +245,7 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     const el = containerRef.current
     if (!el) return undefined
     const rect = el.getBoundingClientRect()
-    // v1.1.1 跨端对齐：盘面固定坐标系 + transform scale 缩放后，getBoundingClientRect 返回的是
-    // 视觉（缩放后）尺寸；画布坐标必须以布局宽度（offsetWidth，不受 transform 影响）为基准，
-    // 保证新建涂鸦 doodle.width 恒为 672（盘面设计宽）→ 多端一致。jsdom 无布局时回退 rect。
-    const w = el.offsetWidth || rect.width
-    const h = el.offsetHeight || rect.height
-    if (w && h) setSize({ width: w, height: h })
+    if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height })
     setToolbarPos((prev) => {
       if (prev) return prev
       const vw = window.innerWidth || 800
@@ -309,7 +304,9 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const cursorCls = tool === 'mouse'
     ? (dragSel ? 'cursor-grabbing' : 'cursor-default')
     : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
-  const touchCls = tool === 'mouse' ? (dragSel ? 'touch-none' : 'touch-auto') : 'touch-none'
+  const touchCls = tool === 'mouse'
+    ? (dragSel || shapeDrag ? 'touch-none' : 'touch-auto')
+    : 'touch-none'
 
   /** pointer 事件 → 画布坐标（viewBox 与容器像素映射）。
    *  2026-08-10：preserveAspectRatio 改 xMidYMid meet 后，容器与画布比例不同时内容
@@ -481,6 +478,9 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const onShapeDown = (e, index, mode, el) => {
     e.preventDefault()
     e.stopPropagation()
+    // v1.2.0 Bug2：控制点元素已带 touch-none（渲染期生效）；此处同步设置 style 双保险——
+    // touch-action 必须在手势开始前确定，靠 React state 重渲染来不及（触摸会先滚动页面）
+    try { e.currentTarget.style.touchAction = 'none' } catch (_) { /* 忽略 */ }
     try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
     setShapeDrag({
       mode,
@@ -536,6 +536,8 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
       for (let k = elements.length - 1; k >= 0; k--) {
         if (hitTestElement(elements[k], p)) {
           e.preventDefault()
+          // v1.2.0 Bug2：同步设置 touch-action 锁手势（React state 重渲染来不及，触摸会先滚动页面）
+          try { e.currentTarget.style.touchAction = 'none' } catch (_) { /* 忽略 */ }
           try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
           setSelectSel(elements[k].type === 'circle' ? k : null)
           setDragSel({ index: k, dx: 0, dy: 0, startX: p.x, startY: p.y })
@@ -686,7 +688,7 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
                     onPointerMove={onShapeMove}
                     onPointerUp={onShapeUp}
                     onPointerCancel={onShapeUp}
-                    className="cursor-pointer"
+                    className="cursor-pointer touch-none"
                   >
                     {/* 透明命中区：触摸设备 20px / 桌面 14px（必须大于可见手柄，手指才按得中） */}
                     <circle cx={pos.x} cy={pos.y} r={isCoarse ? 20 : 14} fill="transparent" />

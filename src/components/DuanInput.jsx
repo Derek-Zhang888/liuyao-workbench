@@ -12,10 +12,34 @@
  * v0.10 建议4 #6：反馈/备注 textarea 位置互换；取消已反馈自动清空三项对错 + 归入未反馈。
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 const textAreaCls =
   'w-full resize-y rounded-md border border-border bg-bg px-3 py-2 text-sm text-text outline-none transition-colors focus:border-gold'
+
+/** 占断文本框高度惰性记忆（v1.2.0 Bug1）：手动下拉扩长后切页/重挂载保持；
+ *  sessionStorage 三端各自本地，行为一致（三端同步 = 惰性语义一致） */
+const DUAN_H_KEY = 'liuyao-duan-h'
+
+function readDuanHeights() {
+  try {
+    const raw = sessionStorage.getItem(DUAN_H_KEY)
+    if (raw) {
+      const v = JSON.parse(raw)
+      if (v && typeof v === 'object') return v
+    }
+  } catch (_) { /* 解析失败按空 */ }
+  return {}
+}
+
+function saveDuanHeight(field, height) {
+  if (!Number.isFinite(height) || height <= 0) return
+  try {
+    const v = readDuanHeights()
+    v[field] = Math.round(height)
+    sessionStorage.setItem(DUAN_H_KEY, JSON.stringify(v))
+  } catch (_) { /* 静默 */ }
+}
 
 const pillCls = (active) =>
   `rounded-md border px-3 py-1 text-sm transition-colors ${
@@ -44,6 +68,23 @@ export default function DuanInput({ value, onChange }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
   const fed = value.status === '已反馈'
 
+  // ---- 文本框高度惰性（v1.2.0 Bug1）：挂载时恢复上次手动 resize 的高度；
+  // 松开（pointerup）时记录当前高度；React 不管理 style.height，重渲染不覆盖。 ----
+  const taRefs = useRef({})
+  const taRef = (field) => (el) => { taRefs.current[field] = el }
+  useLayoutEffect(() => {
+    const saved = readDuanHeights()
+    for (const [f, h] of Object.entries(saved)) {
+      const el = taRefs.current[f]
+      if (el && Number(h) > 30) el.style.height = `${Number(h)}px`
+    }
+  }, [])
+  /** 文本框指针松开 → 记录高度（resize 手柄拖完触发） */
+  const recordH = (field) => () => {
+    const el = taRefs.current[field]
+    if (el) saveDuanHeight(field, el.offsetHeight)
+  }
+
   // 取消已反馈：自动清空三项对错并归入未反馈（v0.10 建议4 #6）
   // v0.10 改进建7 #2：取消吉凶已在 click 内同步清对错+回未反馈，此处仅兜底
   // （三项对错已空时不再重复回调，避免多余渲染）
@@ -70,6 +111,8 @@ export default function DuanInput({ value, onChange }) {
       <div>
         <div className="mb-1.5 text-sm text-muted">背景</div>
         <textarea
+          ref={taRef('background')}
+          onPointerUp={recordH('background')}
           rows={2}
           className={textAreaCls}
           placeholder="占问背景（事由、双方关系、环境等）…"
@@ -83,6 +126,8 @@ export default function DuanInput({ value, onChange }) {
         <div>
           <div className="mb-1.5 text-sm text-muted">断语</div>
           <textarea
+            ref={taRef('duanyu')}
+            onPointerUp={recordH('duanyu')}
             rows={4}
             className={textAreaCls}
             placeholder="占断结论…"
@@ -93,6 +138,8 @@ export default function DuanInput({ value, onChange }) {
         <div>
           <div className="mb-1.5 text-sm text-muted">应期</div>
           <textarea
+            ref={taRef('yingqi')}
+            onPointerUp={recordH('yingqi')}
             rows={2}
             className={textAreaCls}
             placeholder="应期预测…"
@@ -103,6 +150,8 @@ export default function DuanInput({ value, onChange }) {
         <div>
           <div className="mb-1.5 text-sm text-muted">方位</div>
           <textarea
+            ref={taRef('fangwei')}
+            onPointerUp={recordH('fangwei')}
             rows={2}
             className={textAreaCls}
             placeholder="方位预测…（有文字时卦例库未反馈卡片显示方位标志）"
@@ -117,6 +166,8 @@ export default function DuanInput({ value, onChange }) {
         <div>
           <div className="mb-1.5 text-sm text-muted">反馈</div>
           <textarea
+            ref={taRef('fankui')}
+            onPointerUp={recordH('fankui')}
             rows={3}
             className={textAreaCls}
             placeholder="实际应验情况…"
@@ -127,6 +178,8 @@ export default function DuanInput({ value, onChange }) {
         <div>
           <div className="mb-1.5 text-sm text-muted">笔记</div>
           <textarea
+            ref={taRef('beizhu')}
+            onPointerUp={recordH('beizhu')}
             rows={3}
             className={textAreaCls}
             placeholder="笔记…"

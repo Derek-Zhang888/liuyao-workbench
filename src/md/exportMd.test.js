@@ -479,20 +479,42 @@ describe('guashiToMd 三层格式', () => {
       elements: [{ type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 10, y: 20 }, { x: 30, y: 40 }] }],
     };
     const md = guashiToMd(makeGuashi({ doodle }));
-    expect(md).toContain('## 涂鸦');
-    expect(md).toContain('![涂鸦](data:image/svg+xml;utf8,');
+    expect(md).toContain('## 涂鸦（电脑）');
+    expect(md).toContain('![涂鸦（电脑）](data:image/svg+xml;utf8,');
     // json 元数据块可逆还原源
     expect(md).toContain('```json\n' + JSON.stringify(doodle) + '\n```');
     // 位置：备注（占断内容最后一节）之后，即文件最后
-    const iTu = md.indexOf('## 涂鸦');
+    const iTu = md.indexOf('## 涂鸦（电脑）');
     const iBz = md.indexOf('## 备注');
     const iDy = md.indexOf('## 断语');
     expect(iTu).toBeGreaterThan(iBz);
     expect(iTu).toBeGreaterThan(iDy);
-    expect(md.indexOf('## 涂鸦')).toBe(md.lastIndexOf('## 涂鸦')); // 唯一
+    expect(md.indexOf('## 涂鸦（电脑）')).toBe(md.lastIndexOf('## 涂鸦（电脑）')); // 唯一
     // 空/缺省 doodle → 无涂鸦节（旧卦例兼容）
-    expect(guashiToMd(makeGuashi())).not.toContain('## 涂鸦');
-    expect(guashiToMd(makeGuashi({ doodle: { version: 1, width: 600, height: 400, elements: [] } }))).not.toContain('## 涂鸦');
+    expect(guashiToMd(makeGuashi())).not.toContain('## 涂鸦（电脑）');
+    expect(guashiToMd(makeGuashi({ doodle: { version: 1, width: 600, height: 400, elements: [] } }))).not.toContain('## 涂鸦（电脑）');
+  });
+
+  test('v1.2.0 双涂鸦节：电脑/手机各一套独立导出，节序 电脑→手机，互不影响', () => {
+    const doodle = { version: 1, width: 600, height: 400, elements: [{ type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 1, y: 2 }] }] };
+    const doodleMobile = { version: 1, width: 400, height: 300, elements: [{ type: 'text', x: 5, y: 6, size: 16, color: '#3498db', text: '手机批注' }] };
+    const md = guashiToMd(makeGuashi({ doodle, doodleMobile }));
+    expect(md).toContain('## 涂鸦（电脑）');
+    expect(md).toContain('![涂鸦（电脑）](data:image/svg+xml;utf8,');
+    expect(md).toContain('## 涂鸦（手机）');
+    expect(md).toContain('![涂鸦（手机）](data:image/svg+xml;utf8,');
+    expect(md).toContain('```json\n' + JSON.stringify(doodle) + '\n```');
+    expect(md).toContain('```json\n' + JSON.stringify(doodleMobile) + '\n```');
+    // 节序：涂鸦（电脑）在涂鸦（手机）之前；均在备注之后（文件最后）
+    expect(md.indexOf('## 涂鸦（电脑）')).toBeLessThan(md.indexOf('## 涂鸦（手机）'));
+    expect(md.indexOf('## 涂鸦（电脑）')).toBeGreaterThan(md.indexOf('## 备注'));
+    // 只导出其一：另一节不出现
+    const mdPc = guashiToMd(makeGuashi({ doodle }));
+    expect(mdPc).toContain('## 涂鸦（电脑）');
+    expect(mdPc).not.toContain('## 涂鸦（手机）');
+    const mdMo = guashiToMd(makeGuashi({ doodleMobile }));
+    expect(mdMo).not.toContain('## 涂鸦（电脑）');
+    expect(mdMo).toContain('## 涂鸦（手机）');
   });
 
   test('v0.2 背景节：background 非空时在断语前；空则省略', () => {
@@ -738,8 +760,8 @@ describe('v0.10 md 盘面标记与导入还原', () => {
       ],
     };
     const md = guashiToMd(makeGuashi({ doodle }));
-    expect(md).toContain('## 涂鸦');
-    expect(md).toContain('![涂鸦](data:image/svg+xml;utf8,');
+    expect(md).toContain('## 涂鸦（电脑）');
+    expect(md).toContain('![涂鸦（电脑）](data:image/svg+xml;utf8,');
     const r = mdToGuashi(md);
     expect(r.ok).toBe(true);
     expect(r.guashi.doodle).toEqual(doodle);

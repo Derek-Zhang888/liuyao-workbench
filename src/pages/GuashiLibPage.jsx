@@ -249,12 +249,17 @@ export default function GuashiLibPage() {
 
   // —— v0.10 #1/#16：编辑视图盘面画板（独立 state，不挂 pan；随卦例切换重置）——
   // v0.10 改进建7 #1：画板开启状态会话持久化（切页面后返回保留；与排盘页 state key 独立）
+  // v1.2.0 拆分：editDoodle/editDoodleEnabled=电脑画板，editDoodleMobile/editMobileDoodleEnabled=手机画板
   const DOODLE_ON_KEY = 'liuyao-doodle-on'
+  const MOBILE_DOODLE_ON_KEY = 'liuyao-mobile-doodle-on'
   const [editDoodle, setEditDoodle] = useState(null)
   const [editDoodleEnabled, setEditDoodleEnabled] = useState(false)
+  const [editDoodleMobile, setEditDoodleMobile] = useState(null)
+  const [editMobileDoodleEnabled, setEditMobileDoodleEnabled] = useState(false)
   useEffect(() => {
     const rec = editing
     setEditDoodle(rec?.doodle ?? null) // md 导入还原的涂鸦在此回填显示（可编辑）
+    setEditDoodleMobile(rec?.doodleMobile ?? null) // v1.2.0：手机涂鸦独立回填
     // 编辑页画板默认联动开启：record.doodleOn ?? (doodle 非空)；
     // 会话内开启状态优先（切页面后返回保留）
     let on = false
@@ -267,6 +272,16 @@ export default function GuashiLibPage() {
       on = !!(rec?.doodleOn ?? (rec?.doodle && !isEmptyDoodle(rec.doodle)))
     }
     setEditDoodleEnabled(on)
+    let onM = false
+    try {
+      const saved = sessionStorage.getItem(MOBILE_DOODLE_ON_KEY)
+      if (saved === '1') onM = true
+      else if (saved === '0') onM = false
+      else onM = !!(rec?.doodleMobileOn ?? (rec?.doodleMobile && !isEmptyDoodle(rec.doodleMobile)))
+    } catch (_) {
+      onM = !!(rec?.doodleMobileOn ?? (rec?.doodleMobile && !isEmptyDoodle(rec.doodleMobile)))
+    }
+    setEditMobileDoodleEnabled(onM)
     // 仅在切换卦例时重置
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing?.id])
@@ -274,6 +289,11 @@ export default function GuashiLibPage() {
   const handleEditDoodleToggle = (v) => {
     setEditDoodleEnabled(v)
     try { sessionStorage.setItem(DOODLE_ON_KEY, v ? '1' : '0') } catch (_) { /* 静默 */ }
+  }
+  /** 编辑视图手机画板开关（v1.2.0）：独立 state + sessionStorage */
+  const handleEditMobileDoodleToggle = (v) => {
+    setEditMobileDoodleEnabled(v)
+    try { sessionStorage.setItem(MOBILE_DOODLE_ON_KEY, v ? '1' : '0') } catch (_) { /* 静默 */ }
   }
 
   // —— v0.10 #16：导入/重排盘时携带当前盘面标记设置（markers 随设置重算，修复导入丢失增强显示）——
@@ -518,6 +538,8 @@ export default function GuashiLibPage() {
         title: (rec.title ?? '').trim() || '未命名卦例',
         doodle: editDoodle && !isEmptyDoodle(editDoodle) ? editDoodle : null,
         doodleOn: !!editDoodleEnabled,
+        doodleMobile: editDoodleMobile && !isEmptyDoodle(editDoodleMobile) ? editDoodleMobile : null, // v1.2.0
+        doodleMobileOn: !!editMobileDoodleEnabled,
       })
       setEditing(updated)
       setMsg('已保存修改')
@@ -664,6 +686,10 @@ export default function GuashiLibPage() {
                   doodleEnabled={editDoodleEnabled}
                   onDoodleChange={setEditDoodle}
                   onDoodleToggle={handleEditDoodleToggle}
+                  doodleMobile={editDoodleMobile}
+                  mobileDoodleEnabled={editMobileDoodleEnabled}
+                  onMobileDoodleChange={setEditDoodleMobile}
+                  onMobileDoodleToggle={handleEditMobileDoodleToggle}
                 />
               ) : (
                 panRes && (

@@ -72,12 +72,12 @@ function renderPage() {
 async function startQigua() {
   renderPage()
   fireEvent.click(screen.getByText('mock-起卦'))
-  await screen.findByText('盘面画板（涂鸦）') // PanView 画板开关出现 = 盘面已渲染
+  await screen.findByText('画板（电脑）') // PanView 画板开关出现 = 盘面已渲染
 }
 
 /** 打开画板 → 取 svg 并 mock 测量矩形 */
 function openBoard() {
-  fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
+  fireEvent.click(screen.getByText('画板（电脑）'))
   const svg = document.querySelector('section svg')
   svg.getBoundingClientRect = () => ({
     left: 0, top: 0, width: 600, height: 400, right: 600, bottom: 400, x: 0, y: 0,
@@ -142,10 +142,10 @@ describe('PaipanPage v0.2 全链路', () => {
     await screen.findByText(/已回填历史卦例/)
     expect(screen.getByPlaceholderText('占问背景（事由、双方关系、环境等）…').value).toBe('背景文本')
     // 回填默认不自动开启画板；开启后涂鸦仍在（svg 含 path）
-    expect(screen.getByText('盘面画板（涂鸦）')).toBeTruthy()
+    expect(screen.getByText('画板（电脑）')).toBeTruthy()
     const cb = screen.getByRole('checkbox')
     expect(cb.checked).toBe(false)
-    fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
+    fireEvent.click(screen.getByText('画板（电脑）'))
     const svg2 = document.querySelector('section svg')
     expect(svg2.querySelector('path')).not.toBeNull()
   })
@@ -174,8 +174,8 @@ describe('PaipanPage v0.2 全链路', () => {
       fr.onerror = () => reject(fr.error)
       fr.readAsText(capturedBlob)
     })
-    expect(md).toContain('## 涂鸦')
-    expect(md).toContain('![涂鸦](data:image/svg+xml;utf8,')
+    expect(md).toContain('## 涂鸦（电脑）')
+    expect(md).toContain('![涂鸦（电脑）](data:image/svg+xml;utf8,')
     expect(md).toContain('```json')
     // mdToGuashi 还原
     const r = mdToGuashi(md)
@@ -184,22 +184,24 @@ describe('PaipanPage v0.2 全链路', () => {
     expect(r.guashi.doodle.elements[0].type).toBe('pen')
   })
 
-  test('取消画板：涂鸦非空时弹确认，确认后清除涂鸦并关闭', async () => {
+  test('关闭画板：仅隐藏不清除涂鸦，重新勾选恢复（v1.2.0）', async () => {
     await startQigua()
     const svg = openBoard()
     fireEvent.click(screen.getByText('画笔')) // 2026-08-09：默认鼠标工具，绘制前先切画笔
     drawPen(svg)
-    // 取消勾选 → ConfirmDialog
-    fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
-    expect(await screen.findByText('关闭盘面画板')).toBeTruthy()
-    fireEvent.click(screen.getByText('清除并关闭'))
+    // 关闭画板 → v1.2.0 不再弹确认清空，直接隐藏（涂鸦保留）
+    fireEvent.click(screen.getByText('画板（电脑）'))
     await waitFor(() => {
       expect(screen.getByRole('checkbox').checked).toBe(false)
     })
-    expect(document.querySelector('section svg')).toBeNull()
-    // 涂鸦已清空：重新开启画板无 path
-    fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
-    expect(document.querySelector('section svg path')).toBeNull()
+    expect(screen.queryByText('关闭盘面画板')).toBeNull()
+    expect(document.querySelector('section svg')).toBeNull() // 覆盖层隐藏
+    // 重新勾选 → 涂鸦仍在（未清空）
+    fireEvent.click(screen.getByText('画板（电脑）'))
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox').checked).toBe(true)
+    })
+    expect(document.querySelector('section svg path')).toBeTruthy() // 涂鸦 path 保留
   })
 
   test('吉凶非必选（v0.2 功能 H）：不选吉凶也能保存，记录 jixiong 为空', async () => {
@@ -390,7 +392,7 @@ describe('PaipanPage v0.10 改进', () => {
     // 盘面已重排（乾为天）
     expect(screen.getByText('乾为天')).toBeTruthy()
     // 涂鸦回填：开启画板后 svg 含 path
-    fireEvent.click(screen.getByText('盘面画板（涂鸦）'))
+    fireEvent.click(screen.getByText('画板（电脑）'))
     const svg = document.querySelector('section svg')
     expect(svg.querySelector('path')).not.toBeNull()
   })

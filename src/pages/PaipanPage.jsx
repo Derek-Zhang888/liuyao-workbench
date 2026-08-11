@@ -101,8 +101,11 @@ export default function PaipanPage() {
   const [exportPath, setExportPath] = useState('') // v1.0.0：最近一次导出的完整路径（提示分行显示）
 
   // 盘面画板（v0.2 功能 A）：独立 state，绝不挂 pan（用神重排盘 setPan 会冲掉）
+  // v1.2.0 拆分：doodle/doodleEnabled=电脑画板，doodleMobile/mobileDoodleEnabled=手机画板（两套独立）
   const [doodle, setDoodle] = useState(null)
   const [doodleEnabled, setDoodleEnabled] = useState(false)
+  const [doodleMobile, setDoodleMobile] = useState(null)
+  const [mobileDoodleEnabled, setMobileDoodleEnabled] = useState(false)
 
   // v0.10 #6：重名保存提醒弹窗（pendingRecord 待确认记录；去改名 → 聚焦卦题输入框）
   const [confirmDup, setConfirmDup] = useState(false)
@@ -123,10 +126,11 @@ export default function PaipanPage() {
           method, params, qiguaDate: qiguaDate?.toISOString(),
           title, duan, tags, saved,
           doodle, doodleEnabled, // v0.2 功能 A：画板跨页/刷新保留
+          doodleMobile, mobileDoodleEnabled, // v1.2.0：手机画板独立
         }))
       } catch (_) { /* 容量不足时静默失败 */ }
     }
-  }, [pan, method, params, qiguaDate, title, duan, tags, saved, doodle, doodleEnabled])
+  }, [pan, method, params, qiguaDate, title, duan, tags, saved, doodle, doodleEnabled, doodleMobile, mobileDoodleEnabled])
 
   /** 组件挂载时恢复状态（先读真太阳时设置，再按当前设置重排盘） */
   useEffect(() => {
@@ -171,6 +175,8 @@ export default function PaipanPage() {
         setSaved(s.saved ?? null)
         setDoodle(s.doodle ?? null) // v0.2 功能 A：画板跨页/刷新恢复
         setDoodleEnabled(!!s.doodleEnabled)
+        setDoodleMobile(s.doodleMobile ?? null) // v1.2.0：手机画板独立恢复
+        setMobileDoodleEnabled(!!s.mobileDoodleEnabled)
       } catch (_) { /* 解析失败时静默 */ }
     })()
   }, []) // 仅挂载时执行一次
@@ -334,6 +340,8 @@ export default function PaipanPage() {
       tags,
       doodle: doodle && !isEmptyDoodle(doodle) ? doodle : null, // v0.2 功能 A：空涂鸦不落库
       doodleOn: !!doodleEnabled, // v0.10 改进建7 #1：保存画板开启状态（编辑页默认联动开启）
+      doodleMobile: doodleMobile && !isEmptyDoodle(doodleMobile) ? doodleMobile : null, // v1.2.0：手机画板独立保存
+      doodleMobileOn: !!mobileDoodleEnabled,
       updatedAt: Date.now(), // v0.10 #2：保存/编辑时写更新时间（卡片/统计按此排序显示）
     }
     if (await checkDuplicate(record.title)) {
@@ -442,6 +450,8 @@ export default function PaipanPage() {
     setSaved(rec)
     setDoodle(rec.doodle ?? null) // v0.2 功能 A：回填历史涂鸦（含 md 导入还原）
     setDoodleEnabled(false) // 回填历史默认不自动开启画板（避免覆盖层意外遮挡；编辑页按 record.doodleOn 联动见卦例库）
+    setDoodleMobile(rec.doodleMobile ?? null) // v1.2.0：手机画板独立回填
+    setMobileDoodleEnabled(false)
     setMsg('已回填历史卦例（保存将新建一条卦例）')
   }
 
@@ -463,6 +473,10 @@ export default function PaipanPage() {
             doodleEnabled={doodleEnabled}
             onDoodleChange={setDoodle}
             onDoodleToggle={setDoodleEnabled}
+            doodleMobile={doodleMobile}
+            mobileDoodleEnabled={mobileDoodleEnabled}
+            onMobileDoodleChange={setDoodleMobile}
+            onMobileDoodleToggle={setMobileDoodleEnabled}
           />
         </div>
       )}

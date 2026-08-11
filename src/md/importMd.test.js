@@ -362,6 +362,24 @@ describe('mdToGuashi v0.2 新节（涂鸦/背景/笔记）', () => {
     expect(g.duanyu).toBe('出行顺利'); // 涂鸦节不污染断语
   });
 
+  test('v1.2.0 双涂鸦节：电脑/手机分别还原到 doodle/doodleMobile', () => {
+    const doodle = { version: 1, width: 600, height: 400, elements: [{ type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 1, y: 2 }] }] };
+    const doodleMobile = { version: 1, width: 400, height: 300, elements: [{ type: 'text', x: 5, y: 6, size: 16, color: '#3498db', text: '手机批注' }] };
+    const g = mdToGuashi(guashiToMd(makeGuashi({ doodle, doodleMobile }))).guashi;
+    expect(g.doodle).toEqual(doodle);
+    expect(g.doodleMobile).toEqual(doodleMobile);
+  });
+
+  test('v1.2.0 旧 md 单「涂鸦」节 → doodle（电脑），doodleMobile 为 null（向后兼容）', () => {
+    const doodle = { version: 1, width: 600, height: 400, elements: [{ type: 'pen', color: '#e74c3c', width: 4, points: [{ x: 1, y: 2 }] }] };
+    const md = guashiToMd(makeGuashi({ doodle }))
+      .replace('## 涂鸦（电脑）', '## 涂鸦')
+      .replace('![涂鸦（电脑）](', '![涂鸦](');
+    const g = mdToGuashi(md).guashi;
+    expect(g.doodle).toEqual(doodle);
+    expect(g.doodleMobile).toBeNull();
+  });
+
   test('背景节/笔记节：background 还原；「笔记」与「备注」均映射 beizhu', () => {
     const g = mdToGuashi(guashiToMd(makeGuashi({ background: '占测出差', beizhu: '记得带伞' }))).guashi;
     expect(g.background).toBe('占测出差');

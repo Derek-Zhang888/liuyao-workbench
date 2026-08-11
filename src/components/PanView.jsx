@@ -1,9 +1,8 @@
 /* eslint-disable react/prop-types */
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { WUXING_COLOR, yongShenHit, yongShenHitFushen, liuqinWuxing, GONG_WUXING } from '../engine/paipan.js'
 import { WUXING_ZHI } from '../engine/ganzhi.js'
-import { isEmptyDoodle } from '../engine/doodleSvg.js'
 import {
   MARKER_WANGSHUAI_COLOR,
   markerBadgesFor,
@@ -12,7 +11,6 @@ import {
   wangshuaiAt,
 } from '../engine/panMarkers.js'
 import DoodleBoard from './DoodleBoard.jsx'
-import ConfirmDialog from './ConfirmDialog.jsx'
 
 /** 爻位名（初爻→上爻） */
 const LINE_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻']
@@ -100,41 +98,28 @@ function AnalysisRow({ label, items }) {
   )
 }
 
-export default function PanView({ pan, doodle = null, doodleEnabled = false, onDoodleChange = null, onDoodleToggle = null }) {
+export default function PanView({
+  pan,
+  // PC 画板（电脑端/宽屏/鼠标）
+  doodle = null, doodleEnabled = false, onDoodleChange = null, onDoodleToggle = null,
+  // 手机画板（触屏/窄屏）——v1.2.0 拆分：两套涂鸦独立保存，各端只显示自己的画板
+  doodleMobile = null, mobileDoodleEnabled = false, onMobileDoodleChange = null, onMobileDoodleToggle = null,
+}) {
   const navigate = useNavigate()
 
-  // ---- 盘面固定坐标系 + 等比缩放（v1.1.1 跨端对齐）：盘面作用域恒为 PAN_W 宽，
-  // 窄屏（手机/安卓/Web 小窗）时整体 transform scale 等比缩小（像图片缩放），
-  // 画板涂鸦坐标始终以 PAN_W 为基准 → 任意端盘面视觉一致、涂鸦与盘面精确对齐。
-  // 缩放后视觉高度 = inner.offsetHeight * scale，由外层占位（transform 不影响文档流）。----
-  const PAN_W = 672
-  const panWrapRef = useRef(null)
-  const panInnerRef = useRef(null)
-  const [panScale, setPanScale] = useState(1)
-  const [panSpace, setPanSpace] = useState(0)
-  useLayoutEffect(() => {
-    const measure = () => {
-      const wrap = panWrapRef.current
-      const inner = panInnerRef.current
-      if (!wrap || !inner) return
-      const s = Math.min(1, (wrap.offsetWidth || PAN_W) / PAN_W)
-      setPanScale(s)
-      setPanSpace(inner.offsetHeight * s)
-    }
-    measure()
-    if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(measure)
-      if (panWrapRef.current) ro.observe(panWrapRef.current)
-      if (panInnerRef.current) ro.observe(panInnerRef.current)
-      return () => ro.disconnect()
-    }
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ---- 画板端类型判定（v1.2.0 拍板）：触摸/窄屏 → 手机画板；鼠标/宽屏 → 电脑画板。
+  // 电脑端只显示「画板（电脑）」勾选项 + PC 涂鸦；手机端只显示「画板（手机）」+ 手机涂鸦；
+  // 关闭 = 隐藏（涂鸦数据保留，不清空）。----
+  const isMobilePan = useMemo(() => {
+    try {
+      if (window.matchMedia?.('(pointer: coarse)')?.matches) return true
+    } catch (_) { /* 无 matchMedia 时按宽度 */ }
+    return (window.innerWidth || 0) < 768
   }, [])
-
-  // ---- 画板取消确认（v0.2 功能 A）：取消勾选且涂鸦非空 → 弹窗确认后清除 ----
-  const [confirmClearDoodle, setConfirmClearDoodle] = useState(false)
+  const panDoodle = isMobilePan ? doodleMobile : doodle
+  const panDoodleEnabled = isMobilePan ? mobileDoodleEnabled : doodleEnabled
+  const panOnChange = isMobilePan ? onMobileDoodleChange : onDoodleChange
+  const panOnToggle = isMobilePan ? onMobileDoodleToggle : onDoodleToggle
 
   // ---- 地支分析折叠区展开状态（功能一）：受控组件 + sessionStorage 会话内保持 ----
   // 仅存「展开/收起」布尔（'1'/'0'），绝不缓存 pan.dizhiAnalysis 内容：
@@ -186,17 +171,9 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
   const xgText = bedroomText(pan.xianggui)
   const czText = bedroomText(pan.chuangzhang)
 
-  /** 画板开关切换：开启直接开；关闭且涂鸦非空 → 确认后清除并关闭 */
+  /** 画板开关切换（v1.2.0）：开启直接开；关闭仅隐藏（涂鸦数据保留，不清空） */
   const handleDoodleToggle = (checked) => {
-    if (checked) {
-      onDoodleToggle?.(true)
-      return
-    }
-    if (doodle && !isEmptyDoodle(doodle)) {
-      setConfirmClearDoodle(true)
-      return
-    }
-    onDoodleToggle?.(false)
+    panOnToggle?.(checked)
   }
 
   // ---- 地支分析折叠区（功能一）----
@@ -240,10 +217,8 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
 
   return (
     <section className="card mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-panel">
-      {/* 盘面等比缩放作用域（v1.1.1 跨端对齐）：固定 672 坐标系，窄屏整体 scale 缩小 →
-          涂鸦坐标恒以 672 为基准，任意端盘面视觉一致、画板与盘面精确对齐 */}
-      <div ref={panWrapRef} style={{ height: panSpace }}>
-        <div ref={panInnerRef} className="relative" style={{ width: PAN_W, transform: `scale(${panScale})`, transformOrigin: 'top left' }}>
+      {/* 画板覆盖层作用域（v0.2 功能 A，2026-08-09 扩展至盘面全覆盖）：时间栏 + 神煞栏 + 卦名行 + 表头 + 爻行 */}
+      <div className="relative">
       {/* 干支行（月建/日建可被六亲用神高亮） */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2 text-sm">
         <span className="text-muted">
@@ -532,28 +507,28 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
         })}
       </div>
 
-        {/* 画板覆盖层（v0.2 功能 A）：仅当开启且提供 onChange 时渲染；onClick 已拦截爻位跳转 */}
-        {onDoodleChange && doodleEnabled ? (
-          <DoodleBoard enabled={doodleEnabled} doodle={doodle} onChange={onDoodleChange} />
+        {/* 画板覆盖层（v0.2 功能 A）：仅当开启且提供 onChange 时渲染；onClick 已拦截爻位跳转。
+            v1.2.0：按端类型渲染对应画板（电脑/手机两套独立涂鸦） */}
+        {panOnChange && panDoodleEnabled ? (
+          <DoodleBoard enabled={panDoodleEnabled} doodle={panDoodle} onChange={panOnChange} />
         ) : null}
       </div>
-      </div>
 
-      {/* 画板开关（v0.2 功能 A）：爻行列表之后、地支分析之前；关闭且涂鸦非空 → 确认后清除 */}
-      {onDoodleToggle ? (
+      {/* 画板开关（v0.2 功能 A；v1.2.0 拆分：按端类型显示「画板（电脑）/画板（手机）」，关闭仅隐藏不清空） */}
+      {panOnToggle ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2 text-sm">
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
-              checked={!!doodleEnabled}
+              checked={!!panDoodleEnabled}
               onChange={(e) => handleDoodleToggle(e.target.checked)}
               className="h-4 w-4 cursor-pointer accent-gold"
             />
-            <span className="text-muted">盘面画板（涂鸦）</span>
+            <span className="text-muted">画板（{isMobilePan ? '手机' : '电脑'}）</span>
           </label>
-          {doodleEnabled ? (
+          {panDoodleEnabled ? (
             <span className="text-xs text-muted">
-              开启时可在盘面上自由涂鸦，点击爻位不会跳转；盘面已按固定尺寸统一缩放，多端（电脑/手机/安卓）显示一致
+              开启时可在盘面上自由涂鸦，点击爻位不会跳转；关闭时涂鸦保留，重新勾选即可恢复
             </span>
           ) : null}
         </div>
@@ -584,21 +559,6 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
           </div>
         </details>
       ) : null}
-
-      {/* 画板关闭确认（v0.2 功能 A）：取消勾选且涂鸦非空时弹窗，确认后清除涂鸦并关闭 */}
-      <ConfirmDialog
-        open={confirmClearDoodle}
-        title="关闭盘面画板"
-        message="关闭画板将清除当前涂鸦内容，确定关闭并清除吗？"
-        confirmLabel="清除并关闭"
-        cancelLabel="取消"
-        onCancel={() => setConfirmClearDoodle(false)}
-        onConfirm={() => {
-          setConfirmClearDoodle(false)
-          onDoodleChange?.(null)
-          onDoodleToggle?.(false)
-        }}
-      />
     </section>
   )
 }

@@ -38,8 +38,8 @@ import { QIGUA_METHODS } from '../engine/qigua.js';
 const METHOD_ID = Object.fromEntries(QIGUA_METHODS.map((m) => [m.name, m.id]));
 const METHOD_IDS = new Set(QIGUA_METHODS.map((m) => m.id));
 
-/** 正文节名（盘面节解析但不落字段；v0.2 增 涂鸦/背景/笔记） */
-const SECTIONS = ['盘面', '涂鸦', '背景', '断语', '应期', '备注', '笔记', '反馈'];
+/** 正文节名（盘面节解析但不落字段；v0.2 增 涂鸦/背景/笔记；v1.2.0 增 涂鸦（电脑）/涂鸦（手机）双节） */
+const SECTIONS = ['盘面', '涂鸦（电脑）', '涂鸦（手机）', '涂鸦', '背景', '断语', '应期', '备注', '笔记', '反馈'];
 const SECTION_KEY = { 断语: 'duanyu', 应期: 'yingqi', 备注: 'beizhu', 笔记: 'beizhu', 反馈: 'fankui', 背景: 'background' };
 
 /**
@@ -220,25 +220,33 @@ function parseQiguaParam(s) {
  *       背景（→ background）、笔记（→ beizhu 别名，兼容旧 md「备注」节）、
  *       用神（v0.2 功能 I：从盘面节「用神：六亲 财 / 用神：地支 寅」行解析 → yongShen，
  *       与 paipan 的 yongShen 参数同构；旧 md 盘面无此行时为 null）。
+ * v1.2.0：涂鸦节拆两节——「涂鸦（电脑）」→ doodle、「涂鸦（手机）」→ doodleMobile；
+ *       旧 md 单「涂鸦」节 → doodle（电脑），向后兼容。
  * @param {string} body front matter 之后的正文
- * @returns {{duanyu:string, yingqi:string, beizhu:string, fankui:string, background:string, doodle:object|null, yongShen:object|null}}
+ * @returns {{duanyu:string, yingqi:string, beizhu:string, fankui:string, background:string, doodle:object|null, doodleMobile:object|null, yongShen:object|null}}
  */
 function parseBody(body) {
   const out = { duanyu: '', yingqi: '', beizhu: '', fankui: '', background: '', yongShen: null, createdAt: null, updatedAt: null };
   let doodle = null; // 涂鸦节 ```json 块解析结果（无节/解析失败为 null）
+  let doodleMobile = null; // v1.2.0：手机涂鸦节
   let current = null; // 当前节名（null = 正文前区）
   let buf = [];
+  /** 涂鸦节 ```json 元数据块 → doodle（无块/解析失败 → null） */
+  const parseDoodleBuf = (bufStr) => {
+    const m = /```json\s*([\s\S]*?)```/.exec(bufStr);
+    if (!m) return null;
+    try {
+      const parsed = JSON.parse(m[1].trim());
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  };
   const flush = () => {
-    if (current === '涂鸦') {
-      const m = /```json\s*([\s\S]*?)```/.exec(buf.join('\n'));
-      if (m) {
-        try {
-          const parsed = JSON.parse(m[1].trim());
-          doodle = parsed && typeof parsed === 'object' ? parsed : null;
-        } catch (_) {
-          doodle = null; // 解析失败置 null（不阻断其余字段导入）
-        }
-      }
+    if (current === '涂鸦（电脑）' || current === '涂鸦') {
+      doodle = parseDoodleBuf(buf.join('\n'));
+    } else if (current === '涂鸦（手机）') {
+      doodleMobile = parseDoodleBuf(buf.join('\n'));
     } else if (current === '盘面') {
       const text = buf.join('\n');
       // v0.2 功能 I：盘面文本中的「用神：六亲 财 / 用神：地支 寅」行 → yongShen（不落盘面文本）
@@ -270,7 +278,7 @@ function parseBody(body) {
     buf.push(line);
   }
   flush();
-  return { ...out, doodle };
+  return { ...out, doodle, doodleMobile };
 }
 
 /** 时间段是否含时刻（非空且不止日期）：含 ':'（如 HH:mm / ISO 时间部分）视为精确时刻 */
@@ -321,6 +329,7 @@ export function mdToGuashi(mdText) {
     fankui: bodyFields.fankui,
     background: bodyFields.background, // v0.2 功能 D：占断背景（旧 md 无此节时默认 ''）
     doodle: bodyFields.doodle, // v0.2 功能 A：涂鸦节 ```json 元数据还原（无节/失败为 null）
+    doodleMobile: bodyFields.doodleMobile, // v1.2.0：手机涂鸦节还原（旧 md 无此节为 null）
     yongShen: bodyFields.yongShen ?? null, // v0.2 功能 I：用神（六亲/地支，与 paipan 参数同构；旧 md 无则 null）
     panSnapshot: null, // 盘面文本不存，由 UI 层按 method/params 重新排盘生成
   };
