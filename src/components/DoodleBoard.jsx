@@ -304,8 +304,11 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
   const cursorCls = tool === 'mouse'
     ? (dragSel ? 'cursor-grabbing' : 'cursor-default')
     : tool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'
+  // 触摸锁（v1.2.0 用户拍板方案）：选中圆形（控制点出现）或拖动元素期间 → svg 整体 touch-none
+  // 锁屏防滚动（渲染期 class，触摸开始前已生效，规避 SVG 子元素 touch-action 不可靠）；
+  // 点空白处 setSelectSel(null) 控制点消失 → 恢复 touch-auto 可滚动。shapeDrag 隐含于 selectSel。
   const touchCls = tool === 'mouse'
-    ? (dragSel || shapeDrag ? 'touch-none' : 'touch-auto')
+    ? (dragSel || selectSel !== null ? 'touch-none' : 'touch-auto')
     : 'touch-none'
 
   /** pointer 事件 → 画布坐标（viewBox 与容器像素映射）。
@@ -536,8 +539,10 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
       for (let k = elements.length - 1; k >= 0; k--) {
         if (hitTestElement(elements[k], p)) {
           e.preventDefault()
-          // v1.2.0 Bug2：同步设置 touch-action 锁手势（React state 重渲染来不及，触摸会先滚动页面）
-          try { e.currentTarget.style.touchAction = 'none' } catch (_) { /* 忽略 */ }
+          // ⚠️ v1.2.0 Bug2 复诊（用户报）：不能在此同步设置 e.currentTarget.style.touchAction——
+          // currentTarget 是 SVG 覆盖层本体，设置后 touch-action 永久为 none → 拖动元素后盘面
+          // 整体锁死无法滚动。拖元素的触摸锁由 touchCls 动态控制（dragSel → svg touch-none，
+          // 松手 dragSel=null → 恢复 touch-auto）；控制点（handle g）才是渲染期 touch-none 的正确位置。
           try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch (_) { /* 测试环境无 capture 时静默 */ }
           setSelectSel(elements[k].type === 'circle' ? k : null)
           setDragSel({ index: k, dx: 0, dy: 0, startX: p.x, startY: p.y })

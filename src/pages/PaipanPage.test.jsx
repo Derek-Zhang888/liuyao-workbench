@@ -397,3 +397,31 @@ describe('PaipanPage v0.10 改进', () => {
     expect(svg.querySelector('path')).not.toBeNull()
   })
 })
+
+describe('v1.2.0 修复：重新起卦清空手机涂鸦', () => {
+  test('手机端涂鸦后重新起卦 → 新盘面手机涂鸦清空（曾漏清 doodleMobile）', async () => {
+    const origW = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true }) // <768 → 手机画板
+    try {
+      renderPage()
+      fireEvent.click(screen.getByText('mock-起卦'))
+      await screen.findByText('画板（手机）') // 手机端判定生效
+      fireEvent.click(screen.getByText('画板（手机）'))
+      const svg = document.querySelector('section svg')
+      svg.getBoundingClientRect = () => ({
+        left: 0, top: 0, width: 600, height: 400, right: 600, bottom: 400, x: 0, y: 0, toJSON: () => ({}),
+      })
+      fireEvent.click(screen.getByText('画笔'))
+      drawPen(svg)
+      expect(svg.querySelectorAll('path').length).toBeGreaterThan(0)
+      // 重新起卦 → 涂鸦应清空
+      fireEvent.click(screen.getByText('mock-起卦'))
+      await screen.findByText('画板（手机）')
+      // 重新开启手机画板 → 无 path（涂鸦已清空）
+      fireEvent.click(screen.getByText('画板（手机）'))
+      expect(document.querySelector('section svg path')).toBeNull()
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: origW, configurable: true })
+    }
+  })
+})

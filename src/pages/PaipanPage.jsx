@@ -260,6 +260,8 @@ export default function PaipanPage() {
       setSaved(null)
       setDoodle(null) // v0.2 功能 A：新起卦清空画板
       setDoodleEnabled(false)
+      setDoodleMobile(null) // v1.2.0：手机画板独立，新起卦一并清空（曾漏 → 新盘面残留旧涂鸦）
+      setMobileDoodleEnabled(false)
       setMsg(tsHint)
       setError('')
     } catch (e) {
@@ -385,6 +387,8 @@ export default function PaipanPage() {
     setSaved(null)
     setDoodle(null) // v0.2 功能 A：画板一并清空
     setDoodleEnabled(false)
+    setDoodleMobile(null) // v1.2.0：手机画板独立，重置一并清空
+    setMobileDoodleEnabled(false)
     setMsg('')
     setError('')
     setExportPath('')
