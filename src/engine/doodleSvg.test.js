@@ -61,7 +61,7 @@ describe('doodleToSvg', () => {
     const svg = doodleToSvg(fullDoodle);
     expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
     expect(svg).toContain('viewBox="0 0 600 400"');
-    expect(svg).toContain('preserveAspectRatio="none"');
+    expect(svg).toContain('preserveAspectRatio="xMidYMid meet"'); // 与 DoodleBoard 覆盖层同口径：等比缩放不变形
     expect(svg).toContain('<path d="M 10 20 L 30 40 L 50 20"');
     expect(svg).toContain('<text x="120" y="90" font-size="20"');
     expect(svg).toContain('测卦');

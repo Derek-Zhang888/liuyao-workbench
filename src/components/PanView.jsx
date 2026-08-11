@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { WUXING_COLOR, yongShenHit, yongShenHitFushen, liuqinWuxing, GONG_WUXING } from '../engine/paipan.js'
 import { WUXING_ZHI } from '../engine/ganzhi.js'
@@ -102,6 +102,36 @@ function AnalysisRow({ label, items }) {
 
 export default function PanView({ pan, doodle = null, doodleEnabled = false, onDoodleChange = null, onDoodleToggle = null }) {
   const navigate = useNavigate()
+
+  // ---- 盘面固定坐标系 + 等比缩放（v1.1.1 跨端对齐）：盘面作用域恒为 PAN_W 宽，
+  // 窄屏（手机/安卓/Web 小窗）时整体 transform scale 等比缩小（像图片缩放），
+  // 画板涂鸦坐标始终以 PAN_W 为基准 → 任意端盘面视觉一致、涂鸦与盘面精确对齐。
+  // 缩放后视觉高度 = inner.offsetHeight * scale，由外层占位（transform 不影响文档流）。----
+  const PAN_W = 672
+  const panWrapRef = useRef(null)
+  const panInnerRef = useRef(null)
+  const [panScale, setPanScale] = useState(1)
+  const [panSpace, setPanSpace] = useState(0)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const wrap = panWrapRef.current
+      const inner = panInnerRef.current
+      if (!wrap || !inner) return
+      const s = Math.min(1, (wrap.offsetWidth || PAN_W) / PAN_W)
+      setPanScale(s)
+      setPanSpace(inner.offsetHeight * s)
+    }
+    measure()
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(measure)
+      if (panWrapRef.current) ro.observe(panWrapRef.current)
+      if (panInnerRef.current) ro.observe(panInnerRef.current)
+      return () => ro.disconnect()
+    }
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ---- 画板取消确认（v0.2 功能 A）：取消勾选且涂鸦非空 → 弹窗确认后清除 ----
   const [confirmClearDoodle, setConfirmClearDoodle] = useState(false)
@@ -210,8 +240,10 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
 
   return (
     <section className="card mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-panel">
-      {/* 画板覆盖层作用域（v0.2 功能 A，2026-08-09 扩展至盘面全覆盖）：时间栏 + 神煞栏 + 卦名行 + 表头 + 爻行 */}
-      <div className="relative">
+      {/* 盘面等比缩放作用域（v1.1.1 跨端对齐）：固定 672 坐标系，窄屏整体 scale 缩小 →
+          涂鸦坐标恒以 672 为基准，任意端盘面视觉一致、画板与盘面精确对齐 */}
+      <div ref={panWrapRef} style={{ height: panSpace }}>
+        <div ref={panInnerRef} className="relative" style={{ width: PAN_W, transform: `scale(${panScale})`, transformOrigin: 'top left' }}>
       {/* 干支行（月建/日建可被六亲用神高亮） */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2 text-sm">
         <span className="text-muted">
@@ -505,6 +537,7 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
           <DoodleBoard enabled={doodleEnabled} doodle={doodle} onChange={onDoodleChange} />
         ) : null}
       </div>
+      </div>
 
       {/* 画板开关（v0.2 功能 A）：爻行列表之后、地支分析之前；关闭且涂鸦非空 → 确认后清除 */}
       {onDoodleToggle ? (
@@ -520,7 +553,7 @@ export default function PanView({ pan, doodle = null, doodleEnabled = false, onD
           </label>
           {doodleEnabled ? (
             <span className="text-xs text-muted">
-              开启时可在盘面上自由涂鸦，点击爻位不会跳转；建议在全屏（或大窗口 ≥1024px）状态下使用，避免保存后涂鸦位置偏移
+              开启时可在盘面上自由涂鸦，点击爻位不会跳转；盘面已按固定尺寸统一缩放，多端（电脑/手机/安卓）显示一致
             </span>
           ) : null}
         </div>

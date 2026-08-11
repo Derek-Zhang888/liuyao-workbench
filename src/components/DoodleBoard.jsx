@@ -245,7 +245,12 @@ export default function DoodleBoard({ enabled, doodle, onChange }) {
     const el = containerRef.current
     if (!el) return undefined
     const rect = el.getBoundingClientRect()
-    if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height })
+    // v1.1.1 跨端对齐：盘面固定坐标系 + transform scale 缩放后，getBoundingClientRect 返回的是
+    // 视觉（缩放后）尺寸；画布坐标必须以布局宽度（offsetWidth，不受 transform 影响）为基准，
+    // 保证新建涂鸦 doodle.width 恒为 672（盘面设计宽）→ 多端一致。jsdom 无布局时回退 rect。
+    const w = el.offsetWidth || rect.width
+    const h = el.offsetHeight || rect.height
+    if (w && h) setSize({ width: w, height: h })
     setToolbarPos((prev) => {
       if (prev) return prev
       const vw = window.innerWidth || 800
