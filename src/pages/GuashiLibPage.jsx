@@ -116,18 +116,45 @@ export default function GuashiLibPage() {
   const jixiongFilter = searchParams.get('jixiong') || ''
   const yingqiHasFilter = searchParams.get('yingqi') === '1'
   const fangweiHasFilter = searchParams.get('fangwei') === '1'
-  // v0.10 改进建8 #3 排序：URL sort= 参数（created-desc 默认 / created-asc / updated-desc / updated-asc）
-  const sortMode = searchParams.get('sort') || 'created-desc'
+  // 严格筛选（全部命中标签）：strict=1 时标签须全部命中（v0.10 追加）
+  const strictMode = searchParams.get('strict') === '1'
+  // URL 标签参数（v0.2 功能 J）：统计页跳转带 tags= 重复参数（tag 名可含逗号，故不用逗号拼接）
+  const urlTags = useMemo(() => searchParams.getAll('tags').filter(Boolean), [searchParams])
+  // v0.10 改进建8 #3 排序：URL sort= 参数（created-desc 默认 / created-asc / updated-desc / updated-asc / tag-match 最符合标签）
+  // tag-match 无区分度时（严格筛选开启 或 标签不足 2 个）→ 归一化为 created-desc（仅解析层，不改 URL）
+  const sortMode = (() => {
+    const s = searchParams.get('sort') || 'created-desc'
+    if ((strictMode || urlTags.length < 2) && s === 'tag-match') return 'created-desc'
+    return s
+  })()
   // 创建时间范围筛选（YYYY-MM-DD，from/to 均含起止当天；URL 参数，统计页跳转可携带）
   const fromDate = searchParams.get('from') || ''
   const toDate = searchParams.get('to') || ''
-  // URL 标签参数（v0.2 功能 J）：统计页跳转带 tags= 重复参数（tag 名可含逗号，故不用逗号拼接）
-  const urlTags = useMemo(() => searchParams.getAll('tags').filter(Boolean), [searchParams])
   /** 设置单个 URL 参数（空值移除，保持 URL 干净） */
   const setFilter = (key, value) => {
     const next = new URLSearchParams(searchParams)
     if (value) next.set(key, value)
     else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+  /** 设置 URL tags= 重复参数（标签名可含逗号，用重复参数而非逗号拼接；标签走 URL 单一真相源） */
+  const setUrlTags = (tags) => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('tags')
+    for (const t of tags) next.append('tags', t)
+    // 标签不足 2 个时「最符合标签」无意义 → 自动切回创建时间新→旧（URL 一并改写，刷新/分享不残留）
+    if (tags.length < 2 && (next.get('sort') || 'created-desc') === 'tag-match') next.set('sort', 'created-desc')
+    setSearchParams(next, { replace: true })
+  }
+  /** 严格筛选开关（全部命中）：开启时若已启用「最符合标签」排序则自动切回创建时间新→旧 */
+  const setStrict = (on) => {
+    const next = new URLSearchParams(searchParams)
+    if (on) {
+      next.set('strict', '1')
+      if ((next.get('sort') || 'created-desc') === 'tag-match') next.set('sort', 'created-desc')
+    } else {
+      next.delete('strict')
+    }
     setSearchParams(next, { replace: true })
   }
   /** v0.10 改进建8 #2：主筛选单选组切换。选中一个自动取消其他（互斥）；
@@ -146,7 +173,6 @@ export default function GuashiLibPage() {
 
   const [records, setRecords] = useState([])
   const [allTags, setAllTags] = useState([])
-  const [selTags, setSelTags] = useState([])
   const [keyword, setKeyword] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
   const [editing, setEditing] = useState(null) // 详情/编辑中的卦例记录（null = 列表态）
@@ -157,9 +183,9 @@ export default function GuashiLibPage() {
   const [pendingDeleteTag, setPendingDeleteTag] = useState(null) // 待确认删除的标签
 
   // —— 会话级状态保留（v0.10 建议5 #2 + 追加修复）：
-  //    筛选（URL query + 标签 selTags）与编辑中卦例 id 存 sessionStorage，
-  //    切到统计/其他页再回来时恢复；统计页跳转带 query 时以 query 为准（标签不恢复，遵循统计页规则）。
-  //    会话格式 JSON：{ q: <url query string>, tags: <string[]> }
+  //    筛选状态存 sessionStorage，切到统计/其他页再回来时恢复；统计页跳转带 query 时以 query 为准。
+  //    标签/严格筛选已走 URL（q 内含 tags=、strict=），会话格式 JSON：{ q: <url query string> }
+  //    旧会话格式 { q, tags } 兼容：恢复时若 q 无 tags= 而旧 tags 数组有值，则并入 URL（标签曾只存 state 的残留）
   //    恢复只在「首次挂载」执行一次（filterInitializedRef 标记）：
   //    之后用户点「全部」等主动清空时不再被会话旧值拉回（修复「全部」无法选中）。
   const filterInitializedRef = useRef(false)
@@ -172,18 +198,22 @@ export default function GuashiLibPage() {
       if (raw) {
         try { saved = JSON.parse(raw) } catch (_) { saved = { q: raw, tags: [] } } // 兼容旧纯字符串格式
       }
-      if (!cur && saved) {
-        if (saved.q) setSearchParams(saved.q, { replace: true })
-        if (Array.isArray(saved.tags) && saved.tags.length) setSelTags(saved.tags)
+      if (!cur && saved && saved.q) {
+        const next = new URLSearchParams(saved.q)
+        // 旧会话兼容：q 无 tags 而旧 tags 数组有值 → 并入 URL（标签走 URL 后不再单独存）
+        if (!next.has('tags') && Array.isArray(saved.tags) && saved.tags.length) {
+          for (const t of saved.tags) next.append('tags', t)
+        }
+        setSearchParams(next.toString(), { replace: true })
         return // 恢复本帧不保存（等恢复触发的下一帧再保存）
       }
-      // URL 有 query（统计页跳转/直达）：标签不恢复，仅保存当前 query
-      try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: cur, tags: [] })) } catch (_) { /* 静默 */ }
+      // URL 有 query（统计页跳转/直达）：直接保存当前 query（标签已在其中）
+      try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: cur })) } catch (_) { /* 静默 */ }
       return
     }
     // 首次之后：每次筛选变化都保存（含用户点「全部」清空 query）
-    try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: searchParams.toString(), tags: selTags })) } catch (_) { /* 静默 */ }
-  }, [searchParams, selTags])
+    try { sessionStorage.setItem(LIB_FILTER_KEY, JSON.stringify({ q: searchParams.toString() })) } catch (_) { /* 静默 */ }
+  }, [searchParams])
   // 编辑中卦例 id 持久化（v0.10 建议5 #2）：
   // - mount 时从会话恢复（异步 getGuashi）
   // - editing 非空时保存 id
@@ -205,10 +235,7 @@ export default function GuashiLibPage() {
     try { sessionStorage.removeItem(LIB_EDITING_KEY) } catch (_) { /* 静默 */ }
   }
 
-  // —— v0.2 功能 J：URL tags= 参数 → 预选标签（统计页跳转联动；手动点标签不走 URL，不受影响）——
-  useEffect(() => {
-    if (urlTags.length > 0) setSelTags(urlTags)
-  }, [urlTags])
+  // —— v0.2 功能 J：标签已由 URL tags= 参数直接派生（urlTags），统计页跳转/手动点标签统一走 URL ——
 
   // —— v0.2 功能 I：编辑视图自定用神（编辑中卦例变化时重置）——
   // 初始回显：快照烘焙的用神优先，顶层字段兜底（md 导入卦例 panSnapshot 恒 null，用神从 md 解析）
@@ -312,7 +339,7 @@ export default function GuashiLibPage() {
   const doDeleteTag = async (tag) => {
     try {
       const res = await deleteTag(tag.id)
-      setSelTags((s) => s.filter((n) => n !== tag.name))
+      setUrlTags(urlTags.filter((n) => n !== tag.name))
       setMsg(`已删除标签「${tag.name}」${res.removedFromGuashi ? `，并从 ${res.removedFromGuashi} 条卦例中移除该标签` : '（无卦例使用）'}`)
       setError('')
       refreshTags()
@@ -330,18 +357,25 @@ export default function GuashiLibPage() {
     if (tag) doDeleteTag(tag)
   }
 
-  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4 + 改进建8 #2 #3）；
- *  - tag 多选为「任一命中」；用户排序优先，标签命中数作为次级排序
+  /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4 + 改进建8 #2 #3 + 追加修复）；
+ *  - tag 多选：默认「任一命中」；严格筛选（strict=1）时须「全部命中」；用户排序优先，标签命中数作为次级排序
  *  - v0.10 改进建8 #2 新口径互斥单组：
  *      待占断 = jixiong 未选（'' 或缺失）；未反馈 = jixiong 非空 且 status 未反馈；
  *      已反馈 = status 已反馈；三者互斥（选中一个自动取消其他）
  *  - fed 模式：jixiongOk/yingqiOk/fangweiOk 六项对错筛选
  *  - unfed 模式：jixiong(吉/凶)/yingqi(有应期)/fangwei(有方位) 四项子筛选
  *  - v0.10 改进建8 #3 排序：sort=created-desc/asc、updated-desc/asc（默认创建时间新→旧）；
- *    时间戳缺失回退（创建回退 id、最后编辑回退 createdAt），保证确定有序 */
+ *    时间戳缺失回退（创建回退 id、最后编辑回退 createdAt），保证确定有序；
+ *    追加：sort=tag-match 最符合标签 = 命中已选标签数降序（命中全部自然最前），平局按创建时间新→旧
+ *  - 严格筛选（strict=1）下 sort=tag-match 已在解析层归一化为 created-desc（命中数无区分度） */
   const filtered = useMemo(() => {
     const list = records.filter((r) => {
-      if (selTags.length > 0 && !selTags.some((t) => (r.tags ?? []).includes(t))) return false
+      if (urlTags.length > 0) {
+        const own = r.tags ?? []
+        if (strictMode) {
+          if (!urlTags.every((t) => own.includes(t))) return false // 严格：全部命中
+        } else if (!urlTags.some((t) => own.includes(t))) return false // 默认：任一命中
+      }
       if (statusMode === 'pending' && (r.jixiong ?? '') !== '') return false // 待占断 = jixiong 未选
       if (statusMode === 'unfed' && ((r.jixiong ?? '') === '' || r.status !== '未反馈')) return false // 未反馈 = jixiong 非空 且 status 未反馈
       if (statusMode === 'fed' && r.status !== '已反馈') return false // 已反馈 = status 已反馈
@@ -375,16 +409,25 @@ export default function GuashiLibPage() {
       const v = key === 'created' ? (r.createdAt ?? r.id ?? 0) : (r.updatedAt ?? r.createdAt ?? 0)
       return typeof v === 'number' && Number.isFinite(v) ? v : 0
     }
+    const hitCount = (r) => (r.tags ?? []).filter((t) => urlTags.includes(t)).length
+    // 最符合标签：命中已选标签数降序（主），平局按创建时间新→旧 + id 兜底
+    if (sortMode === 'tag-match') {
+      return [...list].sort(
+        (a, b) =>
+          hitCount(b) - hitCount(a) ||
+          tsOf(b, 'created') - tsOf(a, 'created') ||
+          (b.id ?? 0) - (a.id ?? 0),
+      )
+    }
     // desc（新→旧）= 时间戳大在前（dir=1）；asc（旧→新）= 时间戳小在前（dir=-1）
     const dir = sortMode.endsWith('-asc') ? -1 : 1
     const sortKey = sortMode.startsWith('created') ? 'created' : 'updated'
     const cmp = (a, b) => (tsOf(b, sortKey) - tsOf(a, sortKey)) * dir || ((b.id ?? 0) - (a.id ?? 0)) * dir
-    if (selTags.length > 0) {
-      const hitCount = (r) => (r.tags ?? []).filter((t) => selTags.includes(t)).length
+    if (urlTags.length > 0) {
       return [...list].sort((a, b) => cmp(a, b) || hitCount(b) - hitCount(a))
     }
     return [...list].sort(cmp)
-  }, [records, selTags, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter, sortMode, fromDate, toDate])
+  }, [records, urlTags, strictMode, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter, sortMode, fromDate, toDate])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -529,9 +572,8 @@ export default function GuashiLibPage() {
   }
 
   const clearFilters = () => {
-    setSelTags([])
     setKeyword('')
-    // 清空 URL 全部筛选（status / 已反馈六项对错 / 未反馈四项子项），v0.10 建议5 #5
+    // 清空 URL 全部筛选（status / 已反馈六项对错 / 未反馈四项子项 / 标签 tags / 严格 strict / 时间 from,to / 排序 sort），v0.10 建议5 #5 + 追加修复
     setSearchParams({}, { replace: true })
   }
 
@@ -832,12 +874,20 @@ export default function GuashiLibPage() {
                 placeholder="搜索标题或断语…"
                 className="ml-auto w-full max-w-xs rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-text outline-none transition-colors focus:border-gold"
               />
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-gold/60 hover:text-gold"
+                title="清除全部筛选条件（状态/标签/严格/时间/搜索/排序）"
+              >
+                清空筛选
+              </button>
             </div>
-            {/* 标签行（v0.10 建议5 #5：移到筛选行下面） */}
+            {/* 标签行（v0.10 建议5 #5：移到筛选行下面）；标签走 URL 单一真相源，点选=增删 URL tags= 参数 */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-10 shrink-0 text-sm text-muted">标签</span>
               {allTags.map((t) => {
-                const on = selTags.includes(t.name)
+                const on = urlTags.includes(t.name)
                 return (
                   <span
                     key={t.id}
@@ -851,7 +901,7 @@ export default function GuashiLibPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))
+                        setUrlTags(on ? urlTags.filter((x) => x !== t.name) : [...urlTags, t.name])
                       }
                       className="flex items-center gap-1.5"
                       style={{ color: 'inherit' }}
@@ -873,6 +923,25 @@ export default function GuashiLibPage() {
                   </span>
                 )
               })}
+              {/* 严格筛选（全部命中）：<2 标签时禁用但状态保留（1 个标签时全部命中=任一命中，结果等价） */}
+              <label
+                className={`ml-auto flex shrink-0 items-center gap-1.5 text-xs ${
+                  urlTags.length < 2
+                    ? 'cursor-not-allowed text-muted opacity-50'
+                    : 'cursor-pointer text-muted hover:text-text'
+                }`}
+                title={urlTags.length < 2 ? '严格筛选需选择两个或以上标签' : '勾选后只显示命中全部所选标签的卦例'}
+              >
+                <input
+                  type="checkbox"
+                  checked={strictMode}
+                  disabled={urlTags.length < 2}
+                  onChange={(e) => setStrict(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                  style={{ accentColor: 'var(--gold)' }}
+                />
+                严格筛选
+              </label>
               {/* 新增标签（v0.10 建议4 #3）：与排盘占断页 TagEditor 共用 tags 表 */}
               <AddTagInline onAdded={(t) => { refreshTags(); setMsg(`已新增标签「${t.name}」`); setError(''); }} />
             </div>
@@ -892,7 +961,7 @@ export default function GuashiLibPage() {
                 共 {filtered.length} 条，已选 {selectedIds.length} 条
               </span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                {/* 排序选择器（v0.10 改进建8 #3）：创建/最后编辑 新→旧/旧→新，URL sort= 持久 */}
+                {/* 排序选择器（v0.10 改进建8 #3）：创建/最后编辑 新→旧/旧→新 + 最符合标签（命中数降序），URL sort= 持久 */}
                 <label className="flex items-center gap-1.5 text-xs text-muted">
                   排序
                   <select
@@ -904,8 +973,14 @@ export default function GuashiLibPage() {
                     <option value="created-asc">创建时间 旧→新</option>
                     <option value="updated-desc">最后编辑 新→旧</option>
                     <option value="updated-asc">最后编辑 旧→新</option>
+                    <option value="tag-match" disabled={urlTags.length < 2} title={urlTags.length < 2 ? '请选择两个或以上标签' : '命中已选标签数多的排前面'}>
+                      最符合标签
+                    </option>
                   </select>
                 </label>
+                {sortMode === 'tag-match' && urlTags.length < 2 && (
+                  <span className="text-xs text-muted">「最符合标签」需选择两个或以上标签</span>
+                )}
                 <button
                   type="button"
                   onClick={handleBatchExport}

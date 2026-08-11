@@ -14,6 +14,8 @@ import { computeStats, wrongDims, DIM_FIELDS } from './stats.js'
 
 /** 统计页时间筛选惰性记忆 key（{from,to}；切页面返回保持上次筛选） */
 const STATS_TIME_KEY = 'liuyao-stats-time'
+/** 统计页标签+严格筛选惰性记忆 key（{tags:[],strict:bool}；切页面返回保持，两页独立记忆） */
+const STATS_TAGS_KEY = 'liuyao-stats-tags'
 
 /** 读惰性记忆的单个字段（无值/解析失败返回 ''） */
 function readStatsTime(field) {
@@ -25,6 +27,19 @@ function readStatsTime(field) {
     }
   } catch (_) { /* 解析失败按空 */ }
   return ''
+}
+
+/** 读标签+严格筛选惰性记忆（无值/解析失败返回默认：无标签、非严格） */
+function readStatsTags() {
+  try {
+    const raw = sessionStorage.getItem(STATS_TAGS_KEY)
+    if (raw) {
+      const v = JSON.parse(raw)
+      if (Array.isArray(v.tags)) return { tags: v.tags, strict: !!v.strict }
+      if (Array.isArray(v)) return { tags: v, strict: false } // 兼容纯数组旧格式
+    }
+  } catch (_) { /* 解析失败按默认 */ }
+  return { tags: [], strict: false }
 }
 
 /** 维度 key → computeStats 返回字段名 */
@@ -43,13 +58,18 @@ export default function StatsPage() {
   const navigate = useNavigate()
   const [records, setRecords] = useState([])
   const [allTags, setAllTags] = useState([])
-  const [selTags, setSelTags] = useState([]) // 选中的标签名（任一命中；空=全部）
+  const [selTags, setSelTags] = useState(() => readStatsTags().tags) // 选中的标签名（任一/全部命中；空=全部）
+  const [strictMode, setStrictMode] = useState(() => readStatsTags().strict) // 严格筛选：全部命中
   const [fromDate, setFromDate] = useState(() => readStatsTime('from')) // 惰性记忆恢复
   const [toDate, setToDate] = useState(() => readStatsTime('to'))
   // 变化即保存（惰性：仅用户操作更新，不做主动同步）
   useEffect(() => {
     try { sessionStorage.setItem(STATS_TIME_KEY, JSON.stringify({ from: fromDate, to: toDate })) } catch (_) { /* 静默 */ }
   }, [fromDate, toDate])
+  // 标签+严格筛选惰性记忆（两页独立：卦例库的取消/清空不影响统计页选择）
+  useEffect(() => {
+    try { sessionStorage.setItem(STATS_TAGS_KEY, JSON.stringify({ tags: selTags, strict: strictMode })) } catch (_) { /* 静默 */ }
+  }, [selTags, strictMode])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -73,11 +93,15 @@ export default function StatsPage() {
     })()
   }, [])
 
-  // 命中任一选中标签 + 创建时间范围的卦例（v0.2 功能 J；时间范围与卦例库 from=/to= 同口径：
-  // from 当天 00:00 起、to 当天 23:59:59.999 止，含起止当天；createdAt 缺失回退 id）
+  // 命中选中标签 + 创建时间范围的卦例（v0.2 功能 J；默认任一命中，严格筛选=全部命中；
+  // 时间范围与卦例库 from=/to= 同口径：from 当天 00:00 起、to 当天 23:59:59.999 止，含起止当天；createdAt 缺失回退 id）
   const filtered = useMemo(() => {
     let list = records
-    if (selTags.length > 0) list = list.filter((r) => selTags.some((t) => (r.tags ?? []).includes(t)))
+    if (selTags.length > 0) {
+      list = strictMode
+        ? list.filter((r) => selTags.every((t) => (r.tags ?? []).includes(t))) // 严格：全部命中
+        : list.filter((r) => selTags.some((t) => (r.tags ?? []).includes(t))) // 默认：任一命中
+    }
     if (fromDate || toDate) {
       const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null
       const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : null
@@ -89,7 +113,7 @@ export default function StatsPage() {
       })
     }
     return list
-  }, [records, selTags, fromDate, toDate])
+  }, [records, selTags, strictMode, fromDate, toDate])
 
   const stats = useMemo(() => computeStats(filtered), [filtered])
 
@@ -101,6 +125,7 @@ export default function StatsPage() {
   const goLib = (qs) => {
     const params = new URLSearchParams(qs)
     for (const t of selTags) params.append('tags', t) // 标签用重复参数（tag 名可含逗号）
+    if (strictMode) params.set('strict', '1') // 严格筛选随跳转携带，卦例库同步应用
     if (fromDate) params.set('from', fromDate) // 时间范围随跳转携带，卦例库自动应用
     if (toDate) params.set('to', toDate)
     const s = params.toString()
@@ -125,7 +150,7 @@ export default function StatsPage() {
 
       {error && <div className="text-sm text-red">{error}</div>}
 
-      {/* 标签筛选（v0.2 功能 J：新增回来，多选任一命中；数据源=共用 tags 表） */}
+      {/* 标签筛选（v0.2 功能 J：多选筛选；默认任一命中，严格筛选=全部命中；数据源=共用 tags 表） */}
       <section className="flex flex-wrap items-center gap-2 card rounded-xl border border-border bg-panel p-4">
         <span className="w-10 shrink-0 text-sm text-muted">标签</span>
         {allTags.length === 0 && <span className="text-xs text-muted">暂无标签，可在卦例库或排盘页新增</span>}
@@ -142,7 +167,7 @@ export default function StatsPage() {
                 color: on ? t.color : 'var(--muted)',
                 background: on ? t.color + '1f' : 'transparent',
               }}
-              title={on ? '取消筛选' : '按此标签筛选（任一命中）'}
+              title={on ? '取消筛选' : '按此标签筛选'}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
               {t.name}
@@ -150,11 +175,30 @@ export default function StatsPage() {
             </button>
           )
         })}
+        {/* 严格筛选（全部命中）：<2 标签时禁用但状态保留（1 个标签时全部命中=任一命中，结果等价） */}
+        <label
+          className={`ml-auto flex shrink-0 items-center gap-1.5 text-xs ${
+            selTags.length < 2
+              ? 'cursor-not-allowed text-muted opacity-50'
+              : 'cursor-pointer text-muted hover:text-text'
+          }`}
+          title={selTags.length < 2 ? '严格筛选需选择两个或以上标签' : '勾选后只统计命中全部所选标签的卦例'}
+        >
+          <input
+            type="checkbox"
+            checked={strictMode}
+            disabled={selTags.length < 2}
+            onChange={(e) => setStrictMode(e.target.checked)}
+            className="h-3.5 w-3.5"
+            style={{ accentColor: 'var(--gold)' }}
+          />
+          严格筛选
+        </label>
         {selTags.length > 0 && (
           <button
             type="button"
-            onClick={() => setSelTags([])}
-            className="ml-auto rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:text-text"
+            onClick={() => { setSelTags([]); setStrictMode(false) }} // 清除标签连带清严格（拍板：一步回默认全量）
+            className="rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:text-text"
           >
             清除标签
           </button>

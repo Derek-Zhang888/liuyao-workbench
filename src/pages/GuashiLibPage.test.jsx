@@ -274,6 +274,41 @@ describe('GuashiLibPage 排序（v0.10 改进建8 #3）', () => {
     expect(cardTitles()).toEqual(['旧待占断', '新待占断'])
     expect(screen.queryByText('有吉凶')).toBeNull()
   })
+
+  test('sort=tag-match：命中已选标签数多的排前面（最符合标签，平局按创建时间新→旧）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addTag({ name: '出行', color: '#2ecc71' })
+    await addGuashi(rec({ title: '命中三个', tags: ['占病', '工作', '出行'], createdAt: 1000 }))
+    await addGuashi(rec({ title: '命中两个旧', tags: ['占病', '工作'], createdAt: 1500 }))
+    await addGuashi(rec({ title: '命中两个新', tags: ['工作', '出行'], createdAt: 2000 }))
+    await addGuashi(rec({ title: '命中一个', tags: ['占病'], createdAt: 3000 }))
+    renderPage('/lib?tags=占病&tags=工作&tags=出行&sort=tag-match')
+    await screen.findByText('命中三个')
+    await waitFor(() => expect(cardTitles()).toEqual(['命中三个', '命中两个新', '命中两个旧', '命中一个']))
+  })
+
+  test('sort=tag-match 只选 1 个标签时：选项禁用且自动跳回创建时间新→旧', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ title: '单标签', tags: ['占病'] }))
+    renderPage('/lib?tags=占病&sort=tag-match')
+    await screen.findByText('单标签')
+    expect(screen.getByRole('option', { name: '最符合标签' }).disabled).toBe(true)
+    expect(screen.getByLabelText(/排序/).value).toBe('created-desc') // 归一化自动跳回
+  })
+
+  test('取消标签到只剩 1 个时「最符合标签」自动跳回创建时间新→旧', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: '双标签', tags: ['占病', '工作'] }))
+    renderPage('/lib?tags=占病&tags=工作&sort=tag-match')
+    await screen.findByText('双标签')
+    expect(screen.getByLabelText(/排序/).value).toBe('tag-match')
+    // 取消一个标签 → 只剩 1 个 → 排序自动跳回创建时间新→旧（URL 一并改写）
+    fireEvent.click(screen.getAllByTitle('取消筛选')[0])
+    await waitFor(() => expect(screen.getByLabelText(/排序/).value).toBe('created-desc'))
+    expect(screen.getByRole('option', { name: '最符合标签' }).disabled).toBe(true)
+  })
 })
 
 describe('GuashiLibPage URL 标签参数（v0.2 功能 J）', () => {
@@ -295,6 +330,83 @@ describe('GuashiLibPage URL 标签参数（v0.2 功能 J）', () => {
     expect(await screen.findByText('命中且待占断')).toBeTruthy()
     expect(screen.queryByText('命中但有吉凶')).toBeNull()
     expect(screen.queryByText('未命中待占断')).toBeNull()
+  })
+
+  test('手动取消标签同步移除 URL tags：重挂载后不复活（bug 回归）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: '带标签卦例', tags: ['占病', '工作'] }))
+    renderPage('/lib?tags=占病&tags=工作')
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(2))
+    // 手动取消「占病」→ 只剩「工作」选中（URL tags=占病 同步移除）
+    fireEvent.click(screen.getAllByTitle('取消筛选')[0])
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(1))
+    // 重挂载（切走再回来，URL 回到 /lib 无 query）：「占病」不得复活，「工作」保持
+    cleanup()
+    renderPage('/lib')
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(1))
+    expect(screen.getByText('占病').closest('button')?.title).toBe('按此标签筛选')
+    expect(screen.getByText('工作').closest('button')?.title).toBe('取消筛选')
+  })
+
+  test('全部取消标签后重挂载：不再恢复任何标签', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ title: '带标签卦例', tags: ['占病'] }))
+    renderPage('/lib?tags=占病')
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(1))
+    fireEvent.click(screen.getAllByTitle('取消筛选')[0])
+    await waitFor(() => expect(screen.queryAllByTitle('取消筛选')).toHaveLength(0))
+    cleanup()
+    renderPage('/lib')
+    await waitFor(() => expect(screen.queryAllByTitle('取消筛选')).toHaveLength(0))
+  })
+
+  test('「清空筛选」按钮一键清除全部筛选（状态/对错/标签/时间/排序）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ title: '全部可见', tags: ['占病'], status: '已反馈', jixiong: '吉', jixiongOk: '对' }))
+    renderPage('/lib?status=fed&tags=占病&jixiongOk=对&from=2026-08-01&to=2026-08-31&sort=created-asc')
+    await screen.findByText('全部可见')
+    fireEvent.click(screen.getByText('清空筛选'))
+    await waitFor(() => {
+      expect(screen.queryAllByTitle('取消筛选')).toHaveLength(0)
+      expect(screen.getByLabelText(/排序/).value).toBe('created-desc') // 排序回归默认
+    })
+    expect(screen.getByText('全部可见')).toBeTruthy()
+  })
+})
+
+describe('GuashiLibPage 严格筛选（全部命中标签，v0.10 追加）', () => {
+  test('strict=1：只显示命中全部所选标签的卦例（任一命中的被排除）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: '全命中', tags: ['占病', '工作'] }))
+    await addGuashi(rec({ title: '单命中', tags: ['占病'] }))
+    await addGuashi(rec({ title: '未命中', tags: [] }))
+    renderPage('/lib?tags=占病&tags=工作&strict=1')
+    expect(await screen.findByText('全命中')).toBeTruthy()
+    expect(screen.queryByText('单命中')).toBeNull()
+    expect(screen.queryByText('未命中')).toBeNull()
+  })
+
+  test('未选/只选 1 个标签时严格勾选禁用', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ title: '单标签', tags: ['占病'] }))
+    renderPage('/lib?tags=占病')
+    await screen.findByText('单标签')
+    expect(screen.getByLabelText(/严格筛选/).disabled).toBe(true)
+  })
+
+  test('开启严格时若已启用「最符合标签」自动切回创建时间新→旧', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: '双标签', tags: ['占病', '工作'] }))
+    renderPage('/lib?tags=占病&tags=工作&sort=tag-match')
+    await screen.findByText('双标签')
+    expect(screen.getByLabelText(/排序/).value).toBe('tag-match')
+    const cb = screen.getByLabelText(/严格筛选/)
+    expect(cb.disabled).toBe(false)
+    fireEvent.click(cb)
+    await waitFor(() => expect(screen.getByLabelText(/排序/).value).toBe('created-desc'))
   })
 })
 

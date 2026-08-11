@@ -260,3 +260,67 @@ describe('StatsPage 时间筛选惰性记忆（sessionStorage）', () => {
     await waitTotal(1) // 重挂载：清除被记忆，不再恢复旧筛选
   })
 })
+
+describe('StatsPage 标签惰性 + 严格筛选（v0.10 追加）', () => {
+  test('标签惰性记忆：设置标签后卸载重挂载恢复选中（两页独立，不自动取消）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ status: '已反馈', jixiong: '吉', jixiongOk: '对', tags: ['占病'] }))
+    const first = renderPage()
+    await waitTotal(1)
+    fireEvent.click(screen.getByText('占病'))
+    await waitFor(() => expect(screen.getByTitle('取消筛选')).toBeTruthy())
+    expect(sessionStorage.getItem('liuyao-stats-tags')).toContain('占病')
+    first.unmount()
+    renderPage()
+    await waitTotal(1)
+    expect(await screen.findByTitle('取消筛选')).toBeTruthy() // 切页返回标签保持选中
+  })
+
+  test('严格筛选：勾选后只统计命中全部所选标签的卦例；跳转携带 strict=1', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ status: '已反馈', jixiong: '吉', jixiongOk: '对', tags: ['占病', '工作'] }))
+    await addGuashi(rec({ status: '已反馈', jixiong: '凶', jixiongOk: '错', tags: ['占病'] }))
+    renderPage()
+    await waitTotal(2)
+    fireEvent.click(screen.getByText('占病'))
+    fireEvent.click(screen.getByText('工作'))
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(2))
+    await waitTotal(2) // 任一命中：两标签统计 2 条
+    fireEvent.click(screen.getByLabelText(/严格筛选/))
+    await waitFor(async () => expect(await cardValue('总卦例数')).toBe('1')) // 全部命中：只剩同时带两标签的
+    // 已反馈卡跳转 → 携带双标签 + strict=1
+    fireEvent.click(screen.getByRole('button', { name: /已反馈/ }))
+    await waitFor(() => {
+      const loc = decodeURIComponent(screen.getByTestId('lib-loc').textContent)
+      expect(loc).toContain('strict=1')
+      expect(loc).toContain('tags=占病')
+      expect(loc).toContain('tags=工作')
+    })
+  })
+
+  test('清除标签连带清严格；<2 标签时严格勾选禁用', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ tags: ['占病', '工作'] }))
+    renderPage()
+    await waitTotal(1)
+    fireEvent.click(screen.getByText('占病'))
+    fireEvent.click(screen.getByText('工作'))
+    await waitFor(() => expect(screen.getAllByTitle('取消筛选')).toHaveLength(2))
+    const cb = screen.getByLabelText(/严格筛选/)
+    expect(cb.disabled).toBe(false)
+    fireEvent.click(cb)
+    expect(cb.checked).toBe(true)
+    // 「清除标签」→ 标签清空 + 严格连带清空
+    fireEvent.click(screen.getByText('清除标签'))
+    await waitFor(() => {
+      expect(screen.queryAllByTitle('取消筛选')).toHaveLength(0)
+      expect(screen.getByLabelText(/严格筛选/).checked).toBe(false)
+    })
+    // 只选 1 个标签 → 严格禁用
+    fireEvent.click(screen.getByText('占病'))
+    await waitFor(() => expect(screen.getByTitle('取消筛选')).toBeTruthy())
+    expect(screen.getByLabelText(/严格筛选/).disabled).toBe(true)
+  })
+})

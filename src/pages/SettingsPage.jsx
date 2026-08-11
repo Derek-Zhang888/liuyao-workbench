@@ -24,7 +24,9 @@ import { isTauri, isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExp
 import { getDisplayMode, setDisplayMode } from '../utils/displayMode.js'
 
 /** 与 package.json 保持一致 */
-const APP_VERSION = '1.0.1'
+const APP_VERSION = '1.1.0'
+/** 开源仓库地址（关于卡片来源展示；Web 端可点击，桌面/安卓端文本可复制） */
+const REPO_URL = 'https://github.com/Derek-Zhang888/liuyao-workbench'
 
 /** 盘面标记 11 开关定义（v0.2 功能 B）：key 与 settings 表一致，默认全关 */
 const MARKER_DEFS = [
@@ -882,6 +884,22 @@ export default function SettingsPage() {
           <p>
             <span className="text-muted">版本：</span>
             <span className="text-text">v{APP_VERSION} 正式版</span>
+          </p>
+          <p>
+            <span className="text-muted">作者：</span>
+            <span className="text-text">Derek Zhang（GitHub：@Derek-Zhang888）</span>
+          </p>
+          <p className="break-all">
+            <span className="text-muted">开源：</span>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="GitHub 开源仓库"
+              className="text-gold underline-offset-2 hover:underline"
+            >
+              {REPO_URL}
+            </a>
           </p>
           <p className="text-xs text-muted">
             本地排盘与卦例管理工具：7 种起卦方式、天文级干支历法、占断记录与多维统计复盘、Markdown 与 JSON
