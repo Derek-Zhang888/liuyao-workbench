@@ -109,6 +109,17 @@ describe('mdToGuashi front matter', () => {
     expect(g.tags).toEqual([]);
   });
 
+  test('v1.3.0 取数/取数反馈缺省空串（旧 md 兼容）；导出往返无损', () => {
+    const g = mdToGuashi('---\ntitle: 测\n起卦参数: 钱币卦|211111|2026-08-04\n---\n\n# 测').guashi;
+    expect(g.quShu).toBe('');
+    expect(g.quShuFb).toBe('');
+    // 导出 → 导入往返（含三档「错」，验证原「甚远」改「错」后的取值）
+    const rec = makeGuashi({ quShu: '三', quShuFb: '错' });
+    const g2 = mdToGuashi(guashiToMd(rec)).guashi;
+    expect(g2.quShu).toBe('三');
+    expect(g2.quShuFb).toBe('错');
+  });
+
   test('双引号包裹值反转义：反斜杠 / 双引号 / # / YAML 关键字 / 冒号 往返无损', () => {
     const rec = makeGuashi({
       title: '出行 #注意',

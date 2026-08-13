@@ -149,28 +149,30 @@ describe('GuashiLibPage 编辑视图背景信息（v0.2 功能 D，2026-08-11 �
   })
 })
 
-describe('GuashiLibPage 主筛选互斥单组（v0.10 改进建8 #2 新口径）', () => {
-  test('URL status=pending 只显示 jixiong 未选（待占断）的卦例', async () => {
-    await addGuashi(rec({ title: '待占断卦例', jixiong: '' }))
+describe('GuashiLibPage 主筛选互斥单组（v1.3.0 三态口径）', () => {
+  test('URL status=pending 只显示五者全空（待占断）的卦例', async () => {
+    await addGuashi(rec({ title: '待占断卦例' })) // 断语/应期/方位/取数/吉凶 全空
     await addGuashi(rec({ title: '有吉凶卦例', jixiong: '吉' }))
+    await addGuashi(rec({ title: '有取数卦例', quShu: '三' }))
     renderPage('/lib?status=pending')
     expect(await screen.findByText('待占断卦例')).toBeTruthy()
     expect(screen.queryByText('有吉凶卦例')).toBeNull()
+    expect(screen.queryByText('有取数卦例')).toBeNull()
   })
 
   test('旧 query 兼容过渡：pending=1 / status=未反馈 / status=已反馈 均可解析', async () => {
-    await addGuashi(rec({ title: '旧pending', jixiong: '' }))
-    await addGuashi(rec({ title: '旧未反馈', jixiong: '吉', status: '未反馈' }))
-    await addGuashi(rec({ title: '旧已反馈', jixiong: '吉', status: '已反馈', jixiongOk: '对' }))
+    await addGuashi(rec({ title: '旧pending' }))
+    await addGuashi(rec({ title: '旧待反馈', jixiong: '吉' }))
+    await addGuashi(rec({ title: '旧已反馈', fankui: 'x', jixiongOk: '对' }))
     // 旧 pending=1 → 待占断
     renderPage('/lib?pending=1')
     expect(await screen.findByText('旧pending')).toBeTruthy()
-    expect(screen.queryByText('旧未反馈')).toBeNull()
+    expect(screen.queryByText('旧待反馈')).toBeNull()
     expect(screen.queryByText('旧已反馈')).toBeNull()
-    // 旧 status=未反馈 → unfed
+    // 旧 status=未反馈 → unfed（待反馈）
     cleanup()
     renderPage('/lib?status=未反馈')
-    expect(await screen.findByText('旧未反馈')).toBeTruthy()
+    expect(await screen.findByText('旧待反馈')).toBeTruthy()
     expect(screen.queryByText('旧pending')).toBeNull()
     expect(screen.queryByText('旧已反馈')).toBeNull()
     // 旧 status=已反馈 → fed
@@ -178,56 +180,78 @@ describe('GuashiLibPage 主筛选互斥单组（v0.10 改进建8 #2 新口径）
     renderPage('/lib?status=已反馈')
     expect(await screen.findByText('旧已反馈')).toBeTruthy()
     expect(screen.queryByText('旧pending')).toBeNull()
-    expect(screen.queryByText('旧未反馈')).toBeNull()
+    expect(screen.queryByText('旧待反馈')).toBeNull()
   })
 
-  test('新口径：未反馈 = jixiong 非空 且 status 未反馈（jixiong 未选的不算未反馈）', async () => {
-    await addGuashi(rec({ title: '已断未反馈', jixiong: '吉', status: '未反馈' }))
-    await addGuashi(rec({ title: '未选吉凶未反馈', jixiong: '', status: '未反馈' })) // 属于待占断
-    await addGuashi(rec({ title: '已反馈卦例', jixiong: '凶', status: '已反馈', jixiongOk: '对' }))
+  test('v1.3.0 三态：待反馈 = 五者任一非空且 fankui 空；已反馈 = fankui 非空；待占断 = 五者全空', async () => {
+    await addGuashi(rec({ title: '待反馈卦例', jixiong: '吉' })) // 有内容无反馈
+    await addGuashi(rec({ title: '待反馈-取数', quShu: '三' }))
+    await addGuashi(rec({ title: '待占断卦例' })) // 五者全空
+    await addGuashi(rec({ title: '已反馈卦例', fankui: 'x' }))
+    await addGuashi(rec({ title: '旧脏数据', status: '已反馈', jixiong: '吉' })) // status 已反馈但无 fankui → 归待反馈
     renderPage('/lib?status=unfed')
-    expect(await screen.findByText('已断未反馈')).toBeTruthy()
-    expect(screen.queryByText('未选吉凶未反馈')).toBeNull()
+    expect(await screen.findByText('待反馈卦例')).toBeTruthy()
+    expect(screen.getByText('待反馈-取数')).toBeTruthy()
+    expect(screen.getByText('旧脏数据')).toBeTruthy()
+    expect(screen.queryByText('待占断卦例')).toBeNull()
     expect(screen.queryByText('已反馈卦例')).toBeNull()
-    // 待占断视角：未选吉凶的未反馈记录归入待占断
+    // 待占断视角
     cleanup()
     renderPage('/lib?status=pending')
-    expect(await screen.findByText('未选吉凶未反馈')).toBeTruthy()
-    expect(screen.queryByText('已断未反馈')).toBeNull()
+    expect(await screen.findByText('待占断卦例')).toBeTruthy()
+    expect(screen.queryByText('待反馈卦例')).toBeNull()
+    // 已反馈视角（fankui 非空才命中）
+    cleanup()
+    renderPage('/lib?status=fed')
+    expect(await screen.findByText('已反馈卦例')).toBeTruthy()
+    expect(screen.queryByText('旧脏数据')).toBeNull() // status 已反馈但 fankui 空 → 不算已反馈
+    expect(screen.queryByText('待反馈卦例')).toBeNull()
   })
 
-  test('互斥：点击「未反馈」自动取消「待占断」；「全部」清除筛选', async () => {
-    await addGuashi(rec({ title: '待占断卦例', jixiong: '' }))
-    await addGuashi(rec({ title: '未反馈卦例', jixiong: '吉', status: '未反馈' }))
+  test('互斥：点击「待反馈」自动取消「待占断」；「全部」清除筛选', async () => {
+    await addGuashi(rec({ title: '待占断卦例' }))
+    await addGuashi(rec({ title: '待反馈卦例', jixiong: '吉' }))
     renderPage('/lib?status=pending')
     expect(await screen.findByText('待占断卦例')).toBeTruthy()
-    expect(screen.queryByText('未反馈卦例')).toBeNull()
-    // 点「未反馈」→ status=pending 被取消，仅剩未反馈
-    fireEvent.click(screen.getByText('未反馈'))
-    expect(await screen.findByText('未反馈卦例')).toBeTruthy()
+    expect(screen.queryByText('待反馈卦例')).toBeNull()
+    // 点「待反馈」→ status=pending 被取消，仅剩待反馈
+    fireEvent.click(screen.getByText('待反馈'))
+    expect(await screen.findByText('待反馈卦例')).toBeTruthy()
     expect(screen.queryByText('待占断卦例')).toBeNull()
     // 点「全部」→ 清除筛选，两者都显示
     fireEvent.click(screen.getByText('全部'))
     expect(await screen.findByText('待占断卦例')).toBeTruthy()
-    expect(screen.getByText('未反馈卦例')).toBeTruthy()
+    expect(screen.getByText('待反馈卦例')).toBeTruthy()
   })
 
-  test('三态互斥不重叠：待占断/未反馈/已反馈 各只命中自己的记录', async () => {
-    await addGuashi(rec({ title: 'A待占断', jixiong: '', status: '未反馈' }))
-    await addGuashi(rec({ title: 'B未反馈', jixiong: '吉', status: '未反馈' }))
-    await addGuashi(rec({ title: 'C已反馈', jixiong: '吉', status: '已反馈', jixiongOk: '对' }))
+  test('三态互斥不重叠：待占断/待反馈/已反馈 各只命中自己的记录', async () => {
+    await addGuashi(rec({ title: 'A待占断' }))
+    await addGuashi(rec({ title: 'B待反馈', jixiong: '吉' }))
+    await addGuashi(rec({ title: 'C已反馈', fankui: 'x', jixiongOk: '对' }))
     renderPage('/lib?status=pending')
     expect(await screen.findByText('A待占断')).toBeTruthy()
-    expect(screen.queryByText('B未反馈')).toBeNull()
+    expect(screen.queryByText('B待反馈')).toBeNull()
     expect(screen.queryByText('C已反馈')).toBeNull()
-    fireEvent.click(screen.getByText('未反馈'))
-    expect(await screen.findByText('B未反馈')).toBeTruthy()
+    fireEvent.click(screen.getByText('待反馈'))
+    expect(await screen.findByText('B待反馈')).toBeTruthy()
     expect(screen.queryByText('A待占断')).toBeNull()
     expect(screen.queryByText('C已反馈')).toBeNull()
     fireEvent.click(screen.getByText('已反馈'))
     expect(await screen.findByText('C已反馈')).toBeTruthy()
     expect(screen.queryByText('A待占断')).toBeNull()
-    expect(screen.queryByText('B未反馈')).toBeNull()
+    expect(screen.queryByText('B待反馈')).toBeNull()
+  })
+
+  test('v1.3.0 待反馈子筛选：quShu=1 只显示有取数文本的卦例', async () => {
+    await addGuashi(rec({ title: '有取数', quShu: '三' }))
+    await addGuashi(rec({ title: '无取数', jixiong: '吉' }))
+    renderPage('/lib?status=unfed&quShu=1')
+    expect(await screen.findByText('有取数')).toBeTruthy()
+    expect(screen.queryByText('无取数')).toBeNull()
+    // 清除取数子筛选（点击「取数」按钮）→ 两者都显示
+    fireEvent.click(screen.getByText('取数'))
+    expect(await screen.findByText('无取数')).toBeTruthy()
+    expect(screen.getByText('有取数')).toBeTruthy()
   })
 })
 
@@ -363,7 +387,7 @@ describe('GuashiLibPage URL 标签参数（v0.2 功能 J）', () => {
 
   test('「清空筛选」按钮一键清除全部筛选（状态/对错/标签/时间/排序）', async () => {
     await addTag({ name: '占病', color: '#e74c3c' })
-    await addGuashi(rec({ title: '全部可见', tags: ['占病'], status: '已反馈', jixiong: '吉', jixiongOk: '对' }))
+    await addGuashi(rec({ title: '全部可见', tags: ['占病'], fankui: 'x', jixiong: '吉', jixiongOk: '对' }))
     renderPage('/lib?status=fed&tags=占病&jixiongOk=对&from=2026-08-01&to=2026-08-31&sort=created-asc')
     await screen.findByText('全部可见')
     fireEvent.click(screen.getByText('清空筛选'))
@@ -580,5 +604,173 @@ describe('GuashiLibPage 创建时间范围筛选（from=/to=，新历含起止�
     await addGuashi(rec({ title: '无时间戳卦例' })) // createdAt 由 addGuashi 自动生成（现在时刻）
     renderPage('/lib?from=2026-01-01')
     expect(await screen.findByText('无时间戳卦例')).toBeTruthy()
+  })
+})
+
+describe('GuashiLibPage v1.3.0 Bug1：fed 取数反馈多选', () => {
+  test('URL quShuFb 重复参数（神准+相近 同时命中=同维度或），错 被排除', async () => {
+    await addGuashi(rec({ title: '神准卦', fankui: 'x', quShu: '三', quShuFb: '神准' }))
+    await addGuashi(rec({ title: '相近卦', fankui: 'x', quShu: '五', quShuFb: '相近' }))
+    await addGuashi(rec({ title: '错卦', fankui: 'x', quShu: '七', quShuFb: '错' }))
+    renderPage('/lib?status=fed&quShuFb=神准&quShuFb=相近')
+    expect(await screen.findByText('神准卦')).toBeTruthy()
+    expect(screen.getByText('相近卦')).toBeTruthy()
+    expect(screen.queryByText('错卦')).toBeNull()
+  })
+
+  test('UI 点击叠加：取数神准+相近 可同时选中；再点取消单项', async () => {
+    await addGuashi(rec({ title: '神准卦', fankui: 'x', quShu: '三', quShuFb: '神准' }))
+    await addGuashi(rec({ title: '相近卦', fankui: 'x', quShu: '五', quShuFb: '相近' }))
+    await addGuashi(rec({ title: '错卦', fankui: 'x', quShu: '七', quShuFb: '错' }))
+    renderPage('/lib?status=fed')
+    await screen.findByText('神准卦')
+    // 点「取数神准」→ 只剩神准
+    fireEvent.click(screen.getByText('取数神准'))
+    expect(await screen.findByText('神准卦')).toBeTruthy()
+    expect(screen.queryByText('相近卦')).toBeNull()
+    // 再点「取数相近」→ 神准+相近 同时命中（多选叠加，同维度或）
+    fireEvent.click(screen.getByText('取数相近'))
+    expect(await screen.findByText('相近卦')).toBeTruthy()
+    expect(screen.getByText('神准卦')).toBeTruthy()
+    expect(screen.queryByText('错卦')).toBeNull()
+    // 取消「取数神准」→ 只剩相近
+    fireEvent.click(screen.getByText('取数神准'))
+    expect(await screen.findByText('相近卦')).toBeTruthy()
+    expect(screen.queryByText('神准卦')).toBeNull()
+  })
+
+  test('v1.3.0 fed 吉凶/应期/方位对错也支持多选（对+错同时选中=同维度或）', async () => {
+    await addGuashi(rec({ title: '对卦', fankui: 'x', jixiong: '吉', jixiongOk: '对' }))
+    await addGuashi(rec({ title: '错卦', fankui: 'x', jixiong: '凶', jixiongOk: '错' }))
+    await addGuashi(rec({ title: '空卦', fankui: 'x' })) // jixiongOk 未填
+    // URL 多值：对+错 同选 → 两条都显示，空 被排除
+    renderPage('/lib?status=fed&jixiongOk=对&jixiongOk=错')
+    expect(await screen.findByText('对卦')).toBeTruthy()
+    expect(screen.getByText('错卦')).toBeTruthy()
+    expect(screen.queryByText('空卦')).toBeNull()
+    // UI 叠加：点「吉凶对」→ 再点「吉凶错」→ 都命中（按钮与卡片标题不同名，无冲突）
+    cleanup()
+    renderPage('/lib?status=fed')
+    await screen.findByText('对卦')
+    fireEvent.click(screen.getByText('吉凶对'))
+    fireEvent.click(screen.getByText('吉凶错'))
+    await waitFor(() => {
+      expect(screen.getByText('对卦')).toBeTruthy()
+      expect(screen.getByText('错卦')).toBeTruthy()
+      expect(screen.queryByText('空卦')).toBeNull()
+    })
+  })
+
+  test('v1.3.0 待反馈吉/凶 可同选（同维度或）', async () => {
+    await addGuashi(rec({ title: '吉卦', jixiong: '吉' }))
+    await addGuashi(rec({ title: '凶卦', jixiong: '凶' }))
+    renderPage('/lib?status=unfed&jixiong=吉&jixiong=凶')
+    expect(await screen.findByText('吉卦')).toBeTruthy()
+    expect(screen.getByText('凶卦')).toBeTruthy()
+  })
+})
+
+describe('GuashiLibPage v1.3.0 Bug2：未保存修改返回提示', () => {
+  test('编辑后点返回弹窗；取消留在编辑页；不保存返回 → 库中未变', async () => {
+    await addGuashi(rec({ title: '待编辑卦例', fankui: 'x', jixiongOk: '对' }))
+    renderPage()
+    fireEvent.click(await screen.findByText('待编辑卦例'))
+    await screen.findByText('编辑卦例')
+    // 修改标题（触发 markDirty）
+    fireEvent.change(screen.getByPlaceholderText('占问内容'), { target: { value: '修改后标题' } })
+    // 点返回列表 → 弹窗出现
+    fireEvent.click(screen.getByText('← 返回列表'))
+    expect(screen.getByText('有未保存的修改')).toBeTruthy()
+    // 取消 → 留在编辑页（弹窗关闭）
+    fireEvent.click(screen.getByText('取消'))
+    expect(screen.queryByText('有未保存的修改')).toBeNull()
+    expect(screen.getByText('编辑卦例')).toBeTruthy()
+    // 再返回 → 不保存返回 → 回列表，库中未被修改
+    fireEvent.click(screen.getByText('← 返回列表'))
+    fireEvent.click(screen.getByText('不保存返回'))
+    await waitFor(() => expect(screen.queryByText('编辑卦例')).toBeNull())
+    const list = await listGuashi()
+    expect(list[0].title).toBe('待编辑卦例')
+  })
+
+  test('保存并返回 → 修改落库 + 回列表 + 草稿清除（重开为库值）', async () => {
+    await addGuashi(rec({ title: '待编辑卦例', fankui: 'x', jixiongOk: '对' }))
+    renderPage()
+    fireEvent.click(await screen.findByText('待编辑卦例'))
+    await screen.findByText('编辑卦例')
+    fireEvent.change(screen.getByPlaceholderText('占问内容'), { target: { value: '保存后标题' } })
+    fireEvent.click(screen.getByText('← 返回列表'))
+    expect(screen.getByText('有未保存的修改')).toBeTruthy()
+    fireEvent.click(screen.getByText('保存并返回'))
+    await waitFor(() => expect(screen.queryByText('编辑卦例')).toBeNull())
+    const list = await listGuashi()
+    expect(list[0].title).toBe('保存后标题')
+    // 草稿已清：重开卡片显示库值（无残留恢复）
+    fireEvent.click(await screen.findByText('保存后标题'))
+    await screen.findByText('编辑卦例')
+    expect(screen.getByPlaceholderText('占问内容').value).toBe('保存后标题')
+  })
+
+  test('无修改直接返回：不弹窗，直接回列表', async () => {
+    await addGuashi(rec({ title: '未改动卦例', fankui: 'x', jixiongOk: '对' }))
+    renderPage()
+    fireEvent.click(await screen.findByText('未改动卦例'))
+    await screen.findByText('编辑卦例')
+    fireEvent.click(screen.getByText('← 返回列表'))
+    await waitFor(() => expect(screen.queryByText('编辑卦例')).toBeNull())
+    expect(screen.queryByText('有未保存的修改')).toBeNull()
+  })
+})
+
+describe('GuashiLibPage v1.3.0 Bug3：编辑草稿惰性（切页不丢）', () => {
+  test('未保存修改 → 卸载重挂载（切页返回）→ 内容恢复', async () => {
+    await addGuashi(rec({ title: '草稿卦例', fankui: 'x', jixiongOk: '对' }))
+    const first = renderPage()
+    fireEvent.click(await screen.findByText('草稿卦例'))
+    await screen.findByText('编辑卦例')
+    fireEvent.change(screen.getByPlaceholderText('占问内容'), { target: { value: '未保存的标题' } })
+    // 切页：卸载（模拟导航到其他路由）
+    first.unmount()
+    // 返回：重新挂载 → 编辑会话 + 草稿恢复
+    renderPage()
+    await screen.findByText('编辑卦例')
+    expect(screen.getByPlaceholderText('占问内容').value).toBe('未保存的标题')
+  })
+
+  test('保存后草稿清除：切页返回显示库值（非草稿）', async () => {
+    await addGuashi(rec({ title: '已存卦例', fankui: 'x', jixiongOk: '对' }))
+    const first = renderPage()
+    fireEvent.click(await screen.findByText('已存卦例'))
+    await screen.findByText('编辑卦例')
+    fireEvent.change(screen.getByPlaceholderText('占问内容'), { target: { value: '已保存标题' } })
+    fireEvent.click(screen.getAllByText('保存修改')[0])
+    await waitFor(() => expect(screen.getAllByText('已保存修改').length).toBeGreaterThan(0))
+    first.unmount()
+    renderPage()
+    await screen.findByText('编辑卦例')
+    expect(screen.getByPlaceholderText('占问内容').value).toBe('已保存标题')
+  })
+})
+
+describe('GuashiLibPage v1.3.0 严格反馈（strictFb）', () => {
+  test('strictFb=1：只看反馈维度恰好等于勾选维度的卦例（未勾选维度有反馈被排除）', async () => {
+    await addGuashi(rec({ title: '纯吉凶', fankui: 'x', jixiong: '吉', jixiongOk: '对' }))
+    await addGuashi(rec({ title: '吉凶加应期', fankui: 'x', jixiong: '凶', jixiongOk: '错', yingqiOk: '对' }))
+    await addGuashi(rec({ title: '纯应期', fankui: 'x', yingqiOk: '错' }))
+    renderPage('/lib?status=fed&jixiongOk=对&jixiongOk=错&strictFb=1')
+    expect(await screen.findByText('纯吉凶')).toBeTruthy()
+    expect(screen.queryByText('吉凶加应期')).toBeNull() // 应期有反馈 → 严格排除
+    expect(screen.queryByText('纯应期')).toBeNull() // 无吉凶反馈 → 对+错均不命中
+    // UI 关闭严格 → 吉凶加应期 恢复（纯应期仍被对+错排除）
+    fireEvent.click(screen.getByLabelText(/严格反馈/))
+    await waitFor(() => expect(screen.getByText('吉凶加应期')).toBeTruthy())
+    expect(screen.queryByText('纯应期')).toBeNull()
+  })
+
+  test('无对错勾选时严格反馈开关禁用', async () => {
+    await addGuashi(rec({ title: '已反馈', fankui: 'x', jixiongOk: '对' }))
+    renderPage('/lib?status=fed')
+    await screen.findByText('已反馈')
+    expect(screen.getByLabelText(/严格反馈/).disabled).toBe(true)
   })
 })

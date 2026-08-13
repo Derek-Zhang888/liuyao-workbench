@@ -23,7 +23,7 @@ import { saveExport, MD_FILTERS } from '../utils/exportHelper.js'
 import QiguaSelector from '../components/QiguaSelector.jsx'
 import YongShenSelector from '../components/YongShenSelector.jsx'
 import PanView from '../components/PanView.jsx'
-import DuanInput from '../components/DuanInput.jsx'
+import DuanInput, { validateDuanSave } from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
 import ConfirmDialog from '../components/ConfirmDialog.jsx'
 
@@ -33,6 +33,7 @@ const EMPTY_DUAN = {
   duanyu: '',
   yingqi: '',
   fangwei: '',
+  quShu: '', // v1.3.0 取数反馈：取数文本框（方位下方）
   beizhu: '',
   fankui: '',
   jixiong: '',
@@ -40,6 +41,7 @@ const EMPTY_DUAN = {
   jixiongOk: '',
   yingqiOk: '',
   fangweiOk: '',
+  quShuFb: '', // v1.3.0 取数反馈三档：''|'神准'|'相近'|'错'
   background: '', // v0.2 功能 D：占断背景（旧卦例无此字段时默认空）
 }
 
@@ -326,8 +328,10 @@ export default function PaipanPage() {
       return
     }
     // v0.2 功能 H：吉凶改为非必选（未选吉凶也允许保存为「待占断」）
-    if (duan.status === '已反馈' && !duan.jixiongOk) {
-      setError('已反馈时请选择吉凶对错（对/错必选）')
+    // v1.3.0 保存校验（方案 a 唯一硬校验）：已反馈必须四者（吉凶/应期/方位/取数反馈）≥1
+    const fbErr = validateDuanSave(duan)
+    if (fbErr) {
+      setError(fbErr)
       return
     }
     setError('')
@@ -448,6 +452,8 @@ export default function PaipanPage() {
       yingqiOk: rec.yingqiOk ?? '',
       fangweiOk: rec.fangweiOk ?? '',
       fangwei: rec.fangwei ?? '',
+      quShu: rec.quShu ?? '', // v1.3.0：取数文本框回填（旧卦例无此字段默认空）
+      quShuFb: rec.quShuFb ?? '', // v1.3.0：取数反馈回填
       background: rec.background ?? '', // v0.2 功能 D：旧卦例无背景字段时默认空
     })
     setTags(Array.isArray(rec.tags) ? rec.tags : [])

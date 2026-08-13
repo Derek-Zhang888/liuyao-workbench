@@ -217,12 +217,15 @@ describe('PaipanPage v0.2 全链路', () => {
     expect(recs[0].status).toBe('未反馈')
   })
 
-  test('未选吉凶时「已反馈」按钮禁用，选中吉凶后启用（v0.2 功能 H）', async () => {
+  test('v1.3.0 反馈状态联动：填写「反馈」自动标记已反馈（无需先选吉凶）；清空自动回退', async () => {
     await startQigua()
-    const fedBtn = screen.getByRole('button', { name: '已反馈' })
-    expect(fedBtn.disabled).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: '吉' }))
-    expect(fedBtn.disabled).toBe(false)
+    expect(screen.getByText('未反馈')).toBeTruthy() // 初始未反馈徽章
+    // 未选吉凶直接填反馈 → 自动已反馈（v1.3.0：status 只由 fankui 管）
+    fireEvent.change(screen.getByPlaceholderText(/实际应验情况/), { target: { value: '应验了' } })
+    expect(screen.getByText('✓ 已反馈')).toBeTruthy()
+    // 清空反馈 → 自动回未反馈
+    fireEvent.change(screen.getByPlaceholderText(/实际应验情况/), { target: { value: '' } })
+    expect(screen.getByText('未反馈')).toBeTruthy()
   })
 
   test('历史回填恢复自定用神（v0.2 功能 I）', async () => {
@@ -351,26 +354,32 @@ describe('PaipanPage v0.10 改进', () => {
     expect(withBoard.doodle).not.toBeNull()
   })
 
-  test('吉凶取消联动反馈（v0.10 改进建7 #2）：已反馈下取消吉凶 → status 回未反馈、清空对错', async () => {
+  test('v1.3.0：取消吉凶不再动 status（status 只由 fankui 管）+ 已反馈保存校验（四者≥1）', async () => {
     await startQigua()
-    // 选吉凶 → 已反馈 → 选吉凶对错（对错行有 3 组，取第一组「吉凶对错」的「对」）
+    // 选吉凶 + 填反馈（自动已反馈）+ 吉凶对错「对」（jixiong 非空时可用）
     fireEvent.click(screen.getByRole('button', { name: '吉' }))
-    fireEvent.click(screen.getByText('已反馈'))
-    fireEvent.click(screen.getAllByText('对')[0])
-    // 取消吉凶（再次点击吉）
+    fireEvent.change(screen.getByPlaceholderText(/实际应验情况/), { target: { value: '应验了' } })
+    expect(screen.getByText('✓ 已反馈')).toBeTruthy()
+    fireEvent.click(screen.getAllByText('对')[0]) // 吉凶对错「对」
+    // 取消吉凶（再次点击吉）→ 只清 jixiongOk，status 保持已反馈
     fireEvent.click(screen.getByRole('button', { name: '吉' }))
     expect(screen.queryByText('大吉之象')).toBeNull()
-    // 已反馈自动取消（按钮回未反馈文案），对错记录收起
-    expect(screen.getByText('已反馈')).toBeTruthy() // 未勾选态文案
-    expect(screen.queryByText('吉凶对错')).toBeNull()
+    expect(screen.getByText('✓ 已反馈')).toBeTruthy() // status 不动
+    expect(screen.getByText('需先填写吉凶')).toBeTruthy() // 吉凶对错行禁用提示
+    // 保存校验（方案 a）：已反馈必须四者≥1，现在全空 → 拦截
+    fireEvent.click(screen.getByText('保存卦例'))
+    await screen.findByText(/请至少选择一项反馈结果/)
+    // 补取数 + 取数反馈「相近」→ 保存通过（含 quShu/quShuFb 落库）
+    fireEvent.change(screen.getByPlaceholderText(/数量占应|射覆取数/), { target: { value: '三' } })
+    fireEvent.click(screen.getByText('相近'))
     fireEvent.click(screen.getByText('保存卦例'))
     await screen.findByText(/保存成功/)
     const recs = await listGuashi()
     expect(recs[0].jixiong).toBe('')
-    expect(recs[0].status).toBe('未反馈')
+    expect(recs[0].status).toBe('已反馈')
     expect(recs[0].jixiongOk).toBe('')
-    expect(recs[0].yingqiOk).toBe('')
-    expect(recs[0].fangweiOk).toBe('')
+    expect(recs[0].quShu).toBe('三')
+    expect(recs[0].quShuFb).toBe('相近')
   })
 
   test('历史回填 md 导入记录（无快照）：重新排盘 + 涂鸦回填（#16）', async () => {

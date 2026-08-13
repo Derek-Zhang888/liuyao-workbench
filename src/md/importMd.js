@@ -145,6 +145,8 @@ function parseFmLines(lines) {
       case '吉凶对错': f.jixiongOk = unquote(raw); break;
       case '应期对错': f.yingqiOk = unquote(raw); break;
       case '方位对错': f.fangweiOk = unquote(raw); break;
+      case '取数': f.quShu = unquote(raw); break; // v1.3.0：取数文本框
+      case '取数反馈': f.quShuFb = unquote(raw); break; // v1.3.0：取数反馈三档（神准/相近/错；旧 md 无则空）
       case '起卦参数': f.qiguaParam = unquote(raw); break;
       default: break;
     }
@@ -321,6 +323,8 @@ export function mdToGuashi(mdText) {
     jixiongOk: fields.jixiongOk ?? '',
     yingqiOk: fields.yingqiOk ?? '',
     fangweiOk: fields.fangweiOk ?? '',
+    quShu: fields.quShu ?? '', // v1.3.0：取数文本框（旧 md 无则空，向后兼容）
+    quShuFb: fields.quShuFb ?? '', // v1.3.0：取数反馈三档（旧 md 无则空）
     method: qp.method,
     params: qp.params,
     duanyu: bodyFields.duanyu,

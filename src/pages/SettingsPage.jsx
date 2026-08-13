@@ -24,7 +24,7 @@ import { isTauri, isDesktop, isAndroid, pickDirectory, setCloseBehavior, openExp
 import { getDisplayMode, setDisplayMode } from '../utils/displayMode.js'
 
 /** 与 package.json 保持一致 */
-const APP_VERSION = '1.2.1'
+const APP_VERSION = '1.3.0'
 /** 开源仓库地址（关于卡片来源展示；Web 端可点击，桌面/安卓端文本可复制） */
 const REPO_URL = 'https://github.com/Derek-Zhang888/liuyao-workbench'
 

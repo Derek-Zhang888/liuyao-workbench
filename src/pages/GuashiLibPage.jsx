@@ -24,7 +24,7 @@ import { getSetting } from '../db/settingsRepo.js'
 import { paletteColor } from '../config/presetTags.js'
 import { mdToGuashi } from '../md/importMd.js'
 import PanView from '../components/PanView.jsx'
-import DuanInput from '../components/DuanInput.jsx'
+import DuanInput, { validateDuanSave } from '../components/DuanInput.jsx'
 import TagEditor from '../components/TagEditor.jsx'
 import YongShenSelector from '../components/YongShenSelector.jsx'
 import GuashiCard from '../components/GuashiCard.jsx'
@@ -84,12 +84,28 @@ function duanOf(rec) {
     beizhu: rec.beizhu ?? '',
     fankui: rec.fankui ?? '',
     fangwei: rec.fangwei ?? '',
+    quShu: rec.quShu ?? '', // v1.3.0：取数文本框回填（旧卦例无此字段默认空）
     jixiong: rec.jixiong ?? '',
     status: rec.status ?? '未反馈',
     jixiongOk: rec.jixiongOk ?? '',
     yingqiOk: rec.yingqiOk ?? '',
     fangweiOk: rec.fangweiOk ?? '',
+    quShuFb: rec.quShuFb ?? '', // v1.3.0：取数反馈回填
   }
+}
+
+/**
+ * v1.3.0 三态口径辅助：五者（断语/应期/方位/取数/吉凶）任一非空 = 已有占断内容
+ * （与 stats.js 的 hasDuanContent 同口径；待反馈 = 有内容 且 无反馈文本；待占断 = 无内容）
+ */
+function hasDuanContent(r) {
+  return !!(
+    (r?.duanyu ?? '').trim() ||
+    (r?.yingqi ?? '').trim() ||
+    (r?.fangwei ?? '').trim() ||
+    (r?.quShu ?? '').trim() ||
+    (r?.jixiong ?? '')
+  )
 }
 
 export default function GuashiLibPage() {
@@ -108,14 +124,20 @@ export default function GuashiLibPage() {
     if (searchParams.get('pending') === '1') return 'pending' // 旧 query 兼容
     return 'all'
   })()
-  // 已反馈展开后的六项对错筛选（仅 fed 模式生效）
-  const jixiongOkFilter = searchParams.get('jixiongOk') || ''
-  const yingqiOkFilter = searchParams.get('yingqiOk') || ''
-  const fangweiOkFilter = searchParams.get('fangweiOk') || ''
-  // 未反馈展开后的子筛选（仅 unfed 模式生效）：jixiong=吉/凶、yingqi=1（有应期）、fangwei=1（有方位）
-  const jixiongFilter = searchParams.get('jixiong') || ''
+  // 已反馈展开后的对错筛选（仅 fed 模式生效；v1.3.0 全部改为多选=重复参数，同维度=或）：
+  //   jixiongOk/yingqiOk/fangweiOk 对+错可同时选；quShuFb 神准+相近+错可多选
+  const jixiongOkFilter = searchParams.getAll('jixiongOk').filter(Boolean)
+  const yingqiOkFilter = searchParams.getAll('yingqiOk').filter(Boolean)
+  const fangweiOkFilter = searchParams.getAll('fangweiOk').filter(Boolean)
+  const quShuFbFilter = searchParams.getAll('quShuFb').filter(Boolean)
+  // v1.3.0 严格反馈开关（仅 fed 模式生效）：已反馈维度集合恰好等于勾选维度集合（未勾选维度反馈值须全空）；
+  //   URL strictFb=1（与标签严格筛选 strict=1 区分）
+  const strictFbMode = searchParams.get('strictFb') === '1'
+  // 待反馈展开后的子筛选（仅 unfed 模式生效）：jixiong=吉/凶（可同选=或）、yingqi=1（有应期）、fangwei=1（有方位）、quShu=1（有取数）
+  const jixiongFilter = searchParams.getAll('jixiong').filter(Boolean)
   const yingqiHasFilter = searchParams.get('yingqi') === '1'
   const fangweiHasFilter = searchParams.get('fangwei') === '1'
+  const quShuHasFilter = searchParams.get('quShu') === '1' // v1.3.0 取数子筛选
   // 严格筛选（全部命中标签）：strict=1 时标签须全部命中（v0.10 追加）
   const strictMode = searchParams.get('strict') === '1'
   // URL 标签参数（v0.2 功能 J）：统计页跳转带 tags= 重复参数（tag 名可含逗号，故不用逗号拼接）
@@ -135,6 +157,18 @@ export default function GuashiLibPage() {
     const next = new URLSearchParams(searchParams)
     if (value) next.set(key, value)
     else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+  /** v1.3.0 多值筛选切换（重复参数，如 quShuFb=神准&quShuFb=相近；同维度多选=或）：已有则移除，无则追加 */
+  const toggleMultiFilter = (key, val) => {
+    const next = new URLSearchParams(searchParams)
+    const vals = next.getAll(key)
+    if (vals.includes(val)) {
+      next.delete(key)
+      for (const v of vals.filter((x) => x !== val)) next.append(key, v)
+    } else {
+      next.append(key, val)
+    }
     setSearchParams(next, { replace: true })
   }
   /** 设置 URL tags= 重复参数（标签名可含逗号，用重复参数而非逗号拼接；标签走 URL 单一真相源） */
@@ -162,11 +196,12 @@ export default function GuashiLibPage() {
   const setStatusMode = (mode) => {
     const next = new URLSearchParams(searchParams)
     next.delete('pending') // 旧参数一并清理
+    // v1.3.0：fed 对错筛选新增 quShuFb（取数反馈三档）；unfed 子项新增 quShu（有取数）；严格反馈 strictFb
     if (mode === 'all') {
-      for (const k of ['status', 'jixiongOk', 'yingqiOk', 'fangweiOk', 'jixiong', 'yingqi', 'fangwei']) next.delete(k)
+      for (const k of ['status', 'jixiongOk', 'yingqiOk', 'fangweiOk', 'quShuFb', 'strictFb', 'jixiong', 'yingqi', 'fangwei', 'quShu']) next.delete(k)
     } else {
       next.set('status', mode)
-      for (const k of ['jixiongOk', 'yingqiOk', 'fangweiOk', 'jixiong', 'yingqi', 'fangwei']) next.delete(k)
+      for (const k of ['jixiongOk', 'yingqiOk', 'fangweiOk', 'quShuFb', 'strictFb', 'jixiong', 'yingqi', 'fangwei', 'quShu']) next.delete(k)
     }
     setSearchParams(next, { replace: true })
   }
@@ -222,7 +257,16 @@ export default function GuashiLibPage() {
     const saved = sessionStorage.getItem(LIB_EDITING_KEY)
     if (!saved) return
     getGuashi(Number(saved))
-      .then((rec) => { if (rec && !rec.deleted) setEditing(rec) })
+      .then((rec) => {
+        if (rec && !rec.deleted) {
+          // v1.3.0 Bug3：有草稿（上次未保存修改）→ 恢复未保存内容（dirty=true）；否则正常打开并清残留草稿
+          if (!applyDraft(rec)) {
+            setEditing(rec)
+            setDirty(false)
+            clearDraftFor(rec.id)
+          }
+        }
+      })
       .catch(() => { /* 卦例已不存在则忽略 */ })
   }, [])
   useEffect(() => {
@@ -288,12 +332,101 @@ export default function GuashiLibPage() {
   /** 编辑视图画板开关：同步 state + sessionStorage（独立于排盘页） */
   const handleEditDoodleToggle = (v) => {
     setEditDoodleEnabled(v)
+    markDirty()
     try { sessionStorage.setItem(DOODLE_ON_KEY, v ? '1' : '0') } catch (_) { /* 静默 */ }
   }
   /** 编辑视图手机画板开关（v1.2.0）：独立 state + sessionStorage */
   const handleEditMobileDoodleToggle = (v) => {
     setEditMobileDoodleEnabled(v)
+    markDirty()
     try { sessionStorage.setItem(MOBILE_DOODLE_ON_KEY, v ? '1' : '0') } catch (_) { /* 静默 */ }
+  }
+
+  // —— v1.3.0 编辑脏检测 + 草稿惰性（Bug2 未保存返回提示 / Bug3 切页内容保留）——
+  // dirty：编辑态与打开时不一致（未保存修改）；返回列表时弹窗提示是否保存
+  // 草稿：编辑中任一字段变化 → 写 sessionStorage（liuyao-edit-draft-<id>，轻量字段不含 panSnapshot）；
+  //   切到其他页面再返回（mount 恢复）或重开该卡片时恢复未保存内容；保存成功/返回列表清除
+  const [dirty, setDirty] = useState(false)
+  const markDirty = () => setDirty(true)
+  const resetDirty = () => setDirty(false)
+  const DRAFT_PREFIX = 'liuyao-edit-draft-'
+  const draftKey = (id) => `${DRAFT_PREFIX}${id}`
+  const clearDraftFor = (id) => {
+    try { sessionStorage.removeItem(draftKey(id)) } catch (_) { /* 静默 */ }
+  }
+  const clearDraft = () => {
+    if (editing) clearDraftFor(editing.id)
+  }
+  const writeDraft = () => {
+    if (!editing || !dirty) return
+    try {
+      sessionStorage.setItem(draftKey(editing.id), JSON.stringify({
+        id: editing.id,
+        ts: Date.now(),
+        fields: {
+          title: editing.title ?? '',
+          background: editing.background ?? '',
+          duanyu: editing.duanyu ?? '',
+          yingqi: editing.yingqi ?? '',
+          fangwei: editing.fangwei ?? '',
+          quShu: editing.quShu ?? '',
+          beizhu: editing.beizhu ?? '',
+          fankui: editing.fankui ?? '',
+          jixiong: editing.jixiong ?? '',
+          status: editing.status ?? '未反馈',
+          jixiongOk: editing.jixiongOk ?? '',
+          yingqiOk: editing.yingqiOk ?? '',
+          fangweiOk: editing.fangweiOk ?? '',
+          quShuFb: editing.quShuFb ?? '',
+          tags: Array.isArray(editing.tags) ? editing.tags : [],
+        },
+        yongShen: editYongShen ?? null,
+        doodle: editDoodle,
+        doodleOn: editDoodleEnabled,
+        doodleMobile: editDoodleMobile,
+        doodleMobileOn: editMobileDoodleEnabled,
+      }))
+    } catch (_) { /* 容量不足静默 */ }
+  }
+  // 编辑态任一变化（且脏）→ 写草稿（轻量字段；dirty=false 直接跳过）
+  useEffect(() => {
+    writeDraft()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, editYongShen, editDoodle, editDoodleEnabled, editDoodleMobile, editMobileDoodleEnabled, dirty])
+  /** 读草稿并恢复编辑态（editing 叠加草稿字段 + 用神/画板回填 source）；有未保存内容返回 true */
+  const applyDraft = (rec) => {
+    try {
+      const raw = sessionStorage.getItem(draftKey(rec.id))
+      if (!raw) return false
+      const d = JSON.parse(raw)
+      if (!d || d.id !== rec.id) return false
+      setEditing({ ...rec, ...d.fields, yongShen: d.yongShen ?? rec.yongShen })
+      // 画板开关回填 effect 读 sessionStorage 优先 → 同步写入保持一致（数据回填 effect 取 editing 叠加值）
+      try { sessionStorage.setItem(DOODLE_ON_KEY, d.doodleOn ? '1' : '0') } catch (_) { /* 静默 */ }
+      try { sessionStorage.setItem(MOBILE_DOODLE_ON_KEY, d.doodleMobileOn ? '1' : '0') } catch (_) { /* 静默 */ }
+      setDirty(true)
+      return true
+    } catch (_) {
+      return false
+    }
+  }
+  /** 返回列表弹窗（v1.3.0 Bug2）：有未保存修改时三选（保存并返回/不保存返回/取消） */
+  const [confirmBack, setConfirmBack] = useState(false)
+  const doBack = () => {
+    backToList()
+    setMsg('')
+    setError('')
+    setConfirmBack(false)
+    clearDraft()
+  }
+  const handleBackClick = () => {
+    if (dirty) setConfirmBack(true)
+    else doBack()
+  }
+  const handleBackSave = async () => {
+    const ok = await handleSaveEdit()
+    setConfirmBack(false)
+    if (ok) doBack()
   }
 
   // —— v0.10 #16：导入/重排盘时携带当前盘面标记设置（markers 随设置重算，修复导入丢失增强显示）——
@@ -396,18 +529,31 @@ export default function GuashiLibPage() {
           if (!urlTags.every((t) => own.includes(t))) return false // 严格：全部命中
         } else if (!urlTags.some((t) => own.includes(t))) return false // 默认：任一命中
       }
-      if (statusMode === 'pending' && (r.jixiong ?? '') !== '') return false // 待占断 = jixiong 未选
-      if (statusMode === 'unfed' && ((r.jixiong ?? '') === '' || r.status !== '未反馈')) return false // 未反馈 = jixiong 非空 且 status 未反馈
-      if (statusMode === 'fed' && r.status !== '已反馈') return false // 已反馈 = status 已反馈
+      if (statusMode === 'pending' && (hasDuanContent(r) || !!((r.fankui ?? '').trim()))) return false // 待占断 = 五者全空 且 fankui 空（已反馈不落入）
+      if (statusMode === 'unfed' && (hasDuanContent(r) ? !!((r.fankui ?? '').trim()) : true)) return false // 待反馈 = 五者任一非空 且 fankui 空
+      if (statusMode === 'fed' && !(r.fankui ?? '').trim()) return false // 已反馈 = fankui 非空
       if (statusMode === 'fed') {
-        if (jixiongOkFilter && r.jixiongOk !== jixiongOkFilter) return false
-        if (yingqiOkFilter && r.yingqiOk !== yingqiOkFilter) return false
-        if (fangweiOkFilter && r.fangweiOk !== fangweiOkFilter) return false
+        // v1.3.0：对错筛选全部多选（重复参数，同维度=或）：选中项数组非空时，记录值须命中其一
+        if (jixiongOkFilter.length && !jixiongOkFilter.includes(r.jixiongOk)) return false
+        if (yingqiOkFilter.length && !yingqiOkFilter.includes(r.yingqiOk)) return false
+        if (fangweiOkFilter.length && !fangweiOkFilter.includes(r.fangweiOk)) return false
+        if (quShuFbFilter.length && !quShuFbFilter.includes(r.quShuFb)) return false
+        // v1.3.0 严格反馈：未勾选维度的反馈值须全空（已反馈维度集合恰好等于勾选维度集合）
+        if (strictFbMode) {
+          const extraFilled =
+            (!jixiongOkFilter.length && (r.jixiongOk ?? '') !== '') ||
+            (!yingqiOkFilter.length && (r.yingqiOk ?? '') !== '') ||
+            (!fangweiOkFilter.length && (r.fangweiOk ?? '') !== '') ||
+            (!quShuFbFilter.length && (r.quShuFb ?? '') !== '')
+          if (extraFilled) return false
+        }
       }
       if (statusMode === 'unfed') {
-        if (jixiongFilter && r.jixiong !== jixiongFilter) return false
+        // v1.3.0：吉/凶 可同选=或；应期/方位/取数为「有无」开关
+        if (jixiongFilter.length && !jixiongFilter.includes(r.jixiong)) return false
         if (yingqiHasFilter && !(r.yingqi ?? '').trim()) return false
         if (fangweiHasFilter && !(r.fangwei ?? '').trim()) return false
+        if (quShuHasFilter && !(r.quShu ?? '').trim()) return false // v1.3.0 取数子筛选
       }
       const kw = keyword.trim()
       if (kw && !(r.title ?? '').includes(kw) && !(r.duanyu ?? '').includes(kw)) return false
@@ -447,7 +593,7 @@ export default function GuashiLibPage() {
       return [...list].sort((a, b) => cmp(a, b) || hitCount(b) - hitCount(a))
     }
     return [...list].sort(cmp)
-  }, [records, urlTags, strictMode, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, jixiongFilter, yingqiHasFilter, fangweiHasFilter, sortMode, fromDate, toDate])
+  }, [records, urlTags, strictMode, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, quShuFbFilter, strictFbMode, jixiongFilter, yingqiHasFilter, fangweiHasFilter, quShuHasFilter, sortMode, fromDate, toDate])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -493,7 +639,12 @@ export default function GuashiLibPage() {
         setError('该卦例不存在')
         return
       }
-      setEditing(rec)
+      // v1.3.0 Bug3：重开卡片时若有草稿（之前未保存的编辑）→ 恢复；否则正常打开
+      if (!applyDraft(rec)) {
+        setEditing(rec)
+        setDirty(false)
+        clearDraftFor(rec.id)
+      }
     } catch (e) {
       setError('打开卦例失败：' + e.message)
     }
@@ -522,9 +673,11 @@ export default function GuashiLibPage() {
   /* ---------- 编辑保存（updateGuashi 覆盖，不新建） ---------- */
   const handleSaveEdit = async () => {
     const rec = editing
-    if (rec.status === '已反馈' && !rec.jixiongOk) {
-      setError('已反馈时请选择吉凶对错（对/错/留空三选一）')
-      return
+    // v1.3.0 保存校验（方案 a 唯一硬校验）：已反馈必须四者（吉凶/应期/方位/取数反馈）≥1，含存量拦截
+    const fbErr = validateDuanSave(rec)
+    if (fbErr) {
+      setError(fbErr)
+      return false
     }
     try {
       setError('')
@@ -543,9 +696,14 @@ export default function GuashiLibPage() {
       })
       setEditing(updated)
       setMsg('已保存修改')
+      // v1.3.0：保存成功 → 清草稿 + 重置脏标记（未保存修改已落库）
+      setDirty(false)
+      clearDraft()
       refresh()
+      return true
     } catch (e) {
       setError('保存失败：' + e.message)
+      return false
     }
   }
 
@@ -653,11 +811,7 @@ export default function GuashiLibPage() {
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  backToList()
-                  setMsg('')
-                  setError('')
-                }}
+                onClick={handleBackClick} // v1.3.0 Bug2：有未保存修改时弹窗提示是否保存
                 className="rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-text"
               >
                 ← 返回列表
@@ -680,17 +834,17 @@ export default function GuashiLibPage() {
             {/* 左：盘面 + 自定用神（v0.2 功能 I；v0.10 编辑视图画板开关） */}
             <div className="space-y-4">
               {panRes?.ok ? (
-                <PanView
-                  pan={panRes.pan}
-                  doodle={editDoodle}
-                  doodleEnabled={editDoodleEnabled}
-                  onDoodleChange={setEditDoodle}
-                  onDoodleToggle={handleEditDoodleToggle}
-                  doodleMobile={editDoodleMobile}
-                  mobileDoodleEnabled={editMobileDoodleEnabled}
-                  onMobileDoodleChange={setEditDoodleMobile}
-                  onMobileDoodleToggle={handleEditMobileDoodleToggle}
-                />
+              <PanView
+                pan={panRes.pan}
+                doodle={editDoodle}
+                doodleEnabled={editDoodleEnabled}
+                onDoodleChange={(d) => { markDirty(); setEditDoodle(d) }}
+                onDoodleToggle={handleEditDoodleToggle}
+                doodleMobile={editDoodleMobile}
+                mobileDoodleEnabled={editMobileDoodleEnabled}
+                onMobileDoodleChange={(d) => { markDirty(); setEditDoodleMobile(d) }}
+                onMobileDoodleToggle={handleEditMobileDoodleToggle}
+              />
               ) : (
                 panRes && (
                   <div className="rounded-xl border border-red/40 bg-red/10 p-3 text-sm text-red">
@@ -698,7 +852,7 @@ export default function GuashiLibPage() {
                   </div>
                 )
               )}
-              <YongShenSelector value={editYongShen} onChange={setEditYongShen} />
+              <YongShenSelector value={editYongShen} onChange={(v) => { markDirty(); setEditYongShen(v) }} />
             </div>
 
             {/* 右：占断编辑 */}
@@ -709,7 +863,7 @@ export default function GuashiLibPage() {
                 <div className="mb-1.5 text-sm text-muted">占问内容（卦题）</div>
                 <input
                   value={editing.title ?? ''}
-                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  onChange={(e) => { markDirty(); setEditing({ ...editing, title: e.target.value }) }}
                   placeholder="占问内容"
                   className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text outline-none transition-colors focus:border-gold"
                 />
@@ -717,14 +871,14 @@ export default function GuashiLibPage() {
 
               <DuanInput
                 value={duanOf(editing)}
-                onChange={(d) => setEditing({ ...editing, ...d })}
+                onChange={(d) => { markDirty(); setEditing({ ...editing, ...d }) }}
               />
 
               <div className="mt-4">
                 <div className="mb-1.5 text-sm text-muted">标签</div>
                 <TagEditor
                   selected={Array.isArray(editing.tags) ? editing.tags : []}
-                  onChange={(tags) => setEditing({ ...editing, tags })}
+                  onChange={(tags) => { markDirty(); setEditing({ ...editing, tags }) }}
                 />
               </div>
 
@@ -756,6 +910,44 @@ export default function GuashiLibPage() {
               {msg && <div className="mt-3 text-sm text-gold">{msg}</div>}
             </section>
           </div>
+
+          {/* v1.3.0 Bug2：未保存修改返回提示（三选：保存并返回 / 不保存返回 / 取消） */}
+          {confirmBack && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              onClick={(e) => { if (e.target === e.currentTarget) setConfirmBack(false) }}
+            >
+              <div className="w-full max-w-sm rounded-xl border border-border bg-panel p-5 shadow-2xl">
+                <h3 className="mb-3 text-base font-medium text-gold">有未保存的修改</h3>
+                <p className="mb-4 whitespace-pre-line text-sm text-text">
+                  卦例的修改尚未保存，返回列表将丢失这些修改。
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBack(false)}
+                    className="rounded-md border border-border px-4 py-1.5 text-sm text-muted transition-colors hover:text-text"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={doBack}
+                    className="rounded-md border border-red/60 px-4 py-1.5 text-sm text-red transition-colors hover:bg-red/10"
+                  >
+                    不保存返回
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBackSave}
+                    className="rounded-md bg-gold px-4 py-1.5 text-sm font-medium text-black transition-colors hover:opacity-90"
+                  >
+                    保存并返回
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       ) : (
         /* ============ 列表视图 ============ */
@@ -769,7 +961,7 @@ export default function GuashiLibPage() {
               {[
                 { mode: 'all', label: '全部' },
                 { mode: 'pending', label: '待占断' },
-                { mode: 'unfed', label: '未反馈' },
+                { mode: 'unfed', label: '待反馈' }, // v1.3.0 文案：未反馈→待反馈（只改展示，URL status=unfed 保留）
                 { mode: 'fed', label: '已反馈' },
               ].map(({ mode, label }) => {
                 const on = statusMode === mode
@@ -785,11 +977,11 @@ export default function GuashiLibPage() {
                     }`}
                     title={
                       mode === 'pending'
-                        ? '只显示未选吉凶（待占断）的卦例'
+                        ? '只显示尚无占断内容（断语/应期/方位/取数/吉凶 全空）的卦例'
                         : mode === 'unfed'
-                          ? '只显示已选吉凶且未反馈（已断未反馈）的卦例'
+                          ? '只显示已断待反馈（有占断内容但未填写反馈）的卦例'
                           : mode === 'fed'
-                            ? '只显示已反馈的卦例'
+                            ? '只显示已反馈（反馈文本非空）的卦例'
                             : '清除筛选'
                     }
                   >
@@ -797,7 +989,7 @@ export default function GuashiLibPage() {
                   </button>
                 )
               })}
-              {/* 已反馈展开后的六项对错筛选（v0.10 建议4 #8） */}
+              {/* 已反馈展开后的对错筛选（v0.10 建议4 #8；v1.3.0 全部多选=同维度或，对+错可同选） */}
               {statusMode === 'fed' && (
                 <>
                   <span className="ml-2 w-10 shrink-0 text-xs text-muted">对错</span>
@@ -809,12 +1001,13 @@ export default function GuashiLibPage() {
                     { dim: g.key, val: '对', label: `${g.label}对`, color: 'gold' },
                     { dim: g.key, val: '错', label: `${g.label}错`, color: 'red' },
                   ]).map((opt) => {
-                    const active = searchParams.get(opt.dim) === opt.val
+                    const active = searchParams.getAll(opt.dim).includes(opt.val)
                     return (
                       <button
                         key={`${opt.dim}-${opt.val}`}
                         type="button"
-                        onClick={() => setFilter(opt.dim, active ? '' : opt.val)}
+                        onClick={() => toggleMultiFilter(opt.dim, opt.val)}
+                        title={active ? '取消筛选' : '筛选（可与同维度其他项叠加）'}
                         className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
                           active
                             ? opt.color === 'gold'
@@ -827,9 +1020,60 @@ export default function GuashiLibPage() {
                       </button>
                     )
                   })}
+                  {/* v1.3.0 取数反馈三档（神准/相近/错），与统计页取数卡跳转 /lib?status=fed&quShuFb= 配套；
+                      支持多选（重复参数，同维度=或：神准+相近 可同时选中） */}
+                  {[
+                    { dim: 'quShuFb', val: '神准', label: '取数神准', color: 'gold' },
+                    { dim: 'quShuFb', val: '相近', label: '取数相近', color: 'muted' },
+                    { dim: 'quShuFb', val: '错', label: '取数错', color: 'red' },
+                  ].map((opt) => {
+                    const active = searchParams.getAll(opt.dim).includes(opt.val)
+                    return (
+                      <button
+                        key={`${opt.dim}-${opt.val}`}
+                        type="button"
+                        onClick={() => toggleMultiFilter(opt.dim, opt.val)}
+                        title={active ? '取消筛选' : '筛选（可与同维度其他项叠加）'}
+                        className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+                          active
+                            ? opt.color === 'gold'
+                              ? 'border-gold bg-goldSoft text-gold'
+                              : opt.color === 'red'
+                                ? 'border-red bg-red/10 text-red'
+                                : 'border-border bg-goldSoft text-gold'
+                            : 'border-border text-muted hover:text-text'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                  {/* v1.3.0 严格反馈开关：只看反馈维度恰好等于所选维度的卦例（未勾选维度无反馈）；无对错勾选时禁用 */}
+                  <label
+                    className={`flex shrink-0 items-center gap-1.5 text-xs ${
+                      jixiongOkFilter.length || yingqiOkFilter.length || fangweiOkFilter.length || quShuFbFilter.length
+                        ? 'cursor-pointer text-muted hover:text-text'
+                        : 'cursor-not-allowed text-muted opacity-50'
+                    }`}
+                    title={
+                      jixiongOkFilter.length || yingqiOkFilter.length || fangweiOkFilter.length || quShuFbFilter.length
+                        ? '勾选后只看反馈维度恰好等于所选维度的卦例（其他维度无反馈记录）'
+                        : '需先勾选至少一个对错/取数反馈项'
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={strictFbMode}
+                      disabled={!jixiongOkFilter.length && !yingqiOkFilter.length && !fangweiOkFilter.length && !quShuFbFilter.length}
+                      onChange={(e) => setFilter('strictFb', e.target.checked ? '1' : '')}
+                      className="h-3.5 w-3.5"
+                      style={{ accentColor: 'var(--gold)' }}
+                    />
+                    严格反馈
+                  </label>
                 </>
               )}
-              {/* 未反馈展开后的四项子筛选：吉/凶/应期/方位（v0.10 建议5 #4） */}
+              {/* 待反馈展开后的子筛选：吉/凶（可同选=或）/应期/方位/取数（v0.10 建议5 #4；v1.3.0 吉凶改多选、追加取数） */}
               {statusMode === 'unfed' && (
                 <>
                   <span className="ml-2 w-10 shrink-0 text-xs text-muted">子项</span>
@@ -838,13 +1082,19 @@ export default function GuashiLibPage() {
                     { key: 'jixiong', val: '凶', label: '凶', color: 'red' },
                     { key: 'yingqi', val: '1', label: '应期', color: 'gold' },
                     { key: 'fangwei', val: '1', label: '方位', color: 'gold' },
+                    { key: 'quShu', val: '1', label: '取数', color: 'gold' }, // v1.3.0：有取数文本的待反馈卦例
                   ].map((opt) => {
-                    const active = searchParams.get(opt.key) === opt.val
+                    // 吉/凶 多选（同维度=或）；应期/方位/取数 为「有无」开关（单值）
+                    const isMulti = opt.key === 'jixiong'
+                    const active = isMulti
+                      ? searchParams.getAll(opt.key).includes(opt.val)
+                      : searchParams.get(opt.key) === opt.val
                     return (
                       <button
                         key={`${opt.key}-${opt.val}`}
                         type="button"
-                        onClick={() => setFilter(opt.key, active ? '' : opt.val)}
+                        onClick={() => (isMulti ? toggleMultiFilter(opt.key, opt.val) : setFilter(opt.key, active ? '' : opt.val))}
+                        title={active ? '取消筛选' : isMulti ? '筛选（可与同维度其他项叠加）' : '筛选'}
                         className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
                           active
                             ? opt.color === 'gold'

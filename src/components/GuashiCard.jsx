@@ -35,17 +35,28 @@ export default function GuashiCard({
   onExport,
   onDelete,
 }) {
-  const fed = guashi.status === '已反馈'
+  const fed = !!((guashi.fankui ?? '').trim()) // v1.3.0：已反馈 = fankui 非空（与统计/筛选同口径）
   const jx = guashi.jixiong
   const jxOk = guashi.jixiongOk
   const yq = guashi.yingqi
   const yqOk = guashi.yingqiOk
   const fw = guashi.fangwei
   const fwOk = guashi.fangweiOk
+  const qs = guashi.quShu // v1.3.0 取数
+  const qsFb = guashi.quShuFb // v1.3.0 取数反馈：''|'神准'|'相近'|'错'
   const ben = guashi.panSnapshot?.ben?.name
   const bian = guashi.panSnapshot?.bian?.name
   const tags = Array.isArray(guashi.tags) ? guashi.tags : []
   const methodName = METHOD_NAME[guashi.method] ?? guashi.method
+  // v1.3.0 三态徽章：已反馈 = fankui 非空；待反馈 = 五者任一非空；待占断 = 五者全空
+  const hasDuanContent = !!(
+    (guashi.duanyu ?? '').trim() ||
+    (guashi.yingqi ?? '').trim() ||
+    (guashi.fangwei ?? '').trim() ||
+    (guashi.quShu ?? '').trim() ||
+    (guashi.jixiong ?? '')
+  )
+  const statusBadge = fed ? '✓ 已反馈' : hasDuanContent ? '待反馈' : '待占断'
   // v0.10 改进建7 #3：卡片时间分「创建 / 最后编辑」两行分开显示
   //   创建：createdAt 优先，旧记录无 createdAt 回退起卦时间 date
   //   最后编辑：updatedAt（旧记录无 updatedAt 显示 —）
@@ -81,7 +92,7 @@ export default function GuashiCard({
             fed ? 'border-ok/60 bg-ok/10 text-ok' : 'border-border text-muted'
           }`}
         >
-          {fed ? '✓ 已反馈' : '未反馈'}
+          {statusBadge}
         </span>
       </div>
 
@@ -134,14 +145,16 @@ export default function GuashiCard({
                 {fed && (jxOk === '对' ? '✓' : jxOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* 应期标志：已反馈显示 🕰✓/🕰✗；未反馈显示 🕰（断语含时间信息） */}
-            {(fed ? yqOk : yq) && (
+            {/* 应期标志：文本框有内容即显示；已反馈带对错 ✓/✗（对=金 错=红），已反馈未勾对错=灰（预测未反馈） */}
+            {(yq || (fed && yqOk)) && (
               <span
                 className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
                   fed
                     ? yqOk === '对'
                       ? 'border-gold/60 bg-goldSoft text-gold'
-                      : 'border-red/60 bg-red/10 text-red'
+                      : yqOk === '错'
+                        ? 'border-red/60 bg-red/10 text-red'
+                        : 'border-border text-muted'
                     : 'border-border text-muted'
                 }`}
                 title={`应期${fed ? (yqOk === '对' ? '对' : yqOk === '错' ? '错' : '未定') : '已记'}`}
@@ -150,20 +163,39 @@ export default function GuashiCard({
                 {fed && (yqOk === '对' ? '✓' : yqOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* 方位标志：已反馈显示 方位✓/方位✕；未反馈显示 方位（v0.10 建议5 #3 改文字） */}
-            {(fed ? fwOk : fw) && (
+            {/* 方位标志：文本框有内容即显示；已反馈带对错 ✓/✗，已反馈未勾对错=灰（预测未反馈） */}
+            {(fw || (fed && fwOk)) && (
               <span
                 className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
                   fed
                     ? fwOk === '对'
                       ? 'border-gold/60 bg-goldSoft text-gold'
-                      : 'border-red/60 bg-red/10 text-red'
+                      : fwOk === '错'
+                        ? 'border-red/60 bg-red/10 text-red'
+                        : 'border-border text-muted'
                     : 'border-border text-muted'
                 }`}
                 title={`方位${fed ? (fwOk === '对' ? '对' : fwOk === '错' ? '错' : '未定') : '已记'}`}
               >
                 方位
                 {fed && (fwOk === '对' ? '✓' : fwOk === '错' ? '✗' : '')}
+              </span>
+            )}
+            {/* v1.3.0 取数标志：quShu 非空显「数」；已反馈带反馈显「数准/数近/数错」（神准=金、相近=中性、错=红），已反馈未反馈=灰「数」 */}
+            {(qs || (fed && qsFb)) && (
+              <span
+                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
+                  fed
+                    ? qsFb === '神准'
+                      ? 'border-gold/60 bg-goldSoft text-gold'
+                      : qsFb === '错'
+                        ? 'border-red/60 bg-red/10 text-red'
+                        : 'border-border text-muted'
+                    : 'border-border text-muted'
+                }`}
+                title={`取数${fed ? (qsFb || '未定') : '已记'}`}
+              >
+                {fed ? (qsFb === '神准' ? '数准' : qsFb === '相近' ? '数近' : qsFb === '错' ? '数错' : '数') : '数'}
               </span>
             )}
           </div>

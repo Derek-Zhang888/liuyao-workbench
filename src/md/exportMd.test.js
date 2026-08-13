@@ -885,3 +885,20 @@ describe('v0.10 改进建7 md 导出新增字段', () => {
     expectAligned(panTableRawLines(md));
   });
 });
+
+describe('v1.3.0 取数双字段导出', () => {
+  test('front matter 含 取数/取数反馈（值非空时原样输出）', () => {
+    const fm = fmOf({ quShu: '三', quShuFb: '神准' });
+    expect(fm).toContain('取数: 三');
+    expect(fm).toContain('取数反馈: 神准');
+  });
+
+  test('旧记录无取数字段导出为空串（""），md 往返导入无损', () => {
+    const fm = fmOf({});
+    expect(fm).toContain('取数: ""');
+    expect(fm).toContain('取数反馈: ""');
+    const g = mdToGuashi(guashiToMd(makeGuashi({ quShu: '三', quShuFb: '相近' }))).guashi;
+    expect(g.quShu).toBe('三');
+    expect(g.quShuFb).toBe('相近');
+  });
+});
