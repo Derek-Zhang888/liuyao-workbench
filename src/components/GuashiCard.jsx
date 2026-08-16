@@ -10,6 +10,18 @@ import { QIGUA_METHODS } from '../engine/qigua.js'
 
 const METHOD_NAME = Object.fromEntries(QIGUA_METHODS.map((m) => [m.id, m.name]))
 
+/**
+ * 徽章反馈色（用户拍板 2026-08-16 两轮）：反馈对=绿、反馈错=红；
+ *   未反馈/未勾维度：已反馈卦（fankui 非空）里未覆盖的维度=蓝，完全未反馈的卦=灰
+ * @param {string} state '对' | '错' | ''（该维度未勾对错）
+ * @param {boolean} fed 卦是否已反馈（fankui 非空）
+ */
+const badgeCls = (state, fed) => {
+  if (state === '对') return 'border-ok/60 bg-ok/10 text-ok'
+  if (state === '错') return 'border-red/60 bg-red/10 text-red'
+  return fed ? 'border-gold/60 bg-goldSoft text-gold' : 'border-border text-muted'
+}
+
 /** tag 徽章颜色：优先 tags 表配色，未知 tag 用弱化灰 */
 function tagStyle(color) {
   const c = color ?? '#8b93a7'
@@ -132,67 +144,51 @@ export default function GuashiCard({
       <div className="mt-auto border-t border-border pt-2.5">
         <div className="flex items-center justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            {/* 吉凶组合：已反馈带 ✓/✗；未反馈仅吉/凶 */}
+            {/* 吉凶组合：颜色=反馈态（对绿/错红/未反馈蓝）；已反馈带 ✓/✗，未反馈仅吉/凶 */}
             {jx && (
               <span
-                className={`flex items-center gap-0.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                  jx === '吉' && !(fed && jxOk === '错')
-                    ? 'border-gold/60 bg-goldSoft text-gold'
-                    : 'border-red/60 bg-red/10 text-red'
-                }`}
+                className={`flex items-center gap-0.5 rounded-md border px-2 py-0.5 text-xs font-medium ${badgeCls(
+                  fed ? jxOk : '',
+                  fed,
+                )}`}
               >
                 {jx}
                 {fed && (jxOk === '对' ? '✓' : jxOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* 应期标志：文本框有内容即显示；已反馈带对错 ✓/✗（对=金 错=红），已反馈未勾对错=灰（预测未反馈） */}
+            {/* 应期标志：文本框有内容即显示；颜色=反馈态（对绿/错红/未反馈蓝） */}
             {(yq || (fed && yqOk)) && (
               <span
-                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
-                  fed
-                    ? yqOk === '对'
-                      ? 'border-gold/60 bg-goldSoft text-gold'
-                      : yqOk === '错'
-                        ? 'border-red/60 bg-red/10 text-red'
-                        : 'border-border text-muted'
-                    : 'border-border text-muted'
-                }`}
+                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${badgeCls(
+                  fed ? yqOk : '',
+                  fed,
+                )}`}
                 title={`应期${fed ? (yqOk === '对' ? '对' : yqOk === '错' ? '错' : '未定') : '已记'}`}
               >
                 应期
                 {fed && (yqOk === '对' ? '✓' : yqOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* 方位标志：文本框有内容即显示；已反馈带对错 ✓/✗，已反馈未勾对错=灰（预测未反馈） */}
+            {/* 方位标志：文本框有内容即显示；颜色=反馈态（对绿/错红/未反馈蓝） */}
             {(fw || (fed && fwOk)) && (
               <span
-                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
-                  fed
-                    ? fwOk === '对'
-                      ? 'border-gold/60 bg-goldSoft text-gold'
-                      : fwOk === '错'
-                        ? 'border-red/60 bg-red/10 text-red'
-                        : 'border-border text-muted'
-                    : 'border-border text-muted'
-                }`}
+                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${badgeCls(
+                  fed ? fwOk : '',
+                  fed,
+                )}`}
                 title={`方位${fed ? (fwOk === '对' ? '对' : fwOk === '错' ? '错' : '未定') : '已记'}`}
               >
                 方位
                 {fed && (fwOk === '对' ? '✓' : fwOk === '错' ? '✗' : '')}
               </span>
             )}
-            {/* v1.3.0 取数标志：quShu 非空显「数」；已反馈带反馈显「数准/数近/数错」（神准=金、相近=中性、错=红），已反馈未反馈=灰「数」 */}
+            {/* v1.3.0 取数标志：quShu 非空显「数」；颜色=反馈态（神准/相近=绿、错=红、未反馈=蓝） */}
             {(qs || (fed && qsFb)) && (
               <span
-                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${
-                  fed
-                    ? qsFb === '神准'
-                      ? 'border-gold/60 bg-goldSoft text-gold'
-                      : qsFb === '错'
-                        ? 'border-red/60 bg-red/10 text-red'
-                        : 'border-border text-muted'
-                    : 'border-border text-muted'
-                }`}
+                className={`flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-xs ${badgeCls(
+                  fed ? (qsFb === '神准' || qsFb === '相近' ? '对' : qsFb === '错' ? '错' : '') : '',
+                  fed,
+                )}`}
                 title={`取数${fed ? (qsFb || '未定') : '已记'}`}
               >
                 {fed ? (qsFb === '神准' ? '数准' : qsFb === '相近' ? '数近' : qsFb === '错' ? '数错' : '数') : '数'}

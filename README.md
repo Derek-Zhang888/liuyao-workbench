@@ -4,7 +4,7 @@
 >
 > 天文级干支历法（VSOP87D 秒级精度）· 真太阳时 94 城校准 · 7 种起卦 · 数据本地存储 · Web / Windows / Android 三端
 
-**版本 1.3.0** · React 18 + Vite 5 + Tailwind CSS · IndexedDB 零后端
+**版本 1.3.1** · React 18 + Vite 5 + Tailwind CSS · IndexedDB 零后端
 
 ---
 

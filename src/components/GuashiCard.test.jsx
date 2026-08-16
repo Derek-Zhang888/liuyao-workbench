@@ -44,19 +44,20 @@ describe('GuashiCard 已反馈未勾维度标记（拍板 2026-08-14）', () => 
         }}
       />,
     )
-    // 吉凶带 ✓（已反馈）
+    // 吉凶带 ✓（已反馈=对 → 绿色）
     expect(screen.getByText('吉✓')).toBeTruthy()
-    // 应期/方位/取数：显示灰色标记，无 ✓/✗（预测未反馈）
+    // 应期/方位/取数：显示标记，无 ✓/✗（预测未反馈 → 蓝色）
     expect(screen.getByText('应期')).toBeTruthy()
     expect(screen.getByText('方位')).toBeTruthy()
     expect(screen.getByText('数')).toBeTruthy()
     expect(screen.queryByText('应期✓')).toBeNull()
     expect(screen.queryByText('方位✓')).toBeNull()
     expect(screen.queryByText('数准')).toBeNull()
-    // 灰色样式（border-border text-muted 分支）
+    // 未反馈标记样式：蓝色（gold）而非红色/灰色
     const yq = screen.getByText('应期').closest('span')
-    expect(yq.className).toContain('text-muted')
+    expect(yq.className).toContain('text-gold')
     expect(yq.className).not.toContain('text-red')
+    expect(yq.className).not.toContain('text-muted')
   })
 
   test('已反馈：应期/方位/取数勾了对错 → 彩色带 ✓/✗（不回归）', () => {
@@ -80,9 +81,15 @@ describe('GuashiCard 已反馈未勾维度标记（拍板 2026-08-14）', () => 
     expect(screen.getByText('应期✓')).toBeTruthy()
     expect(screen.getByText('方位✗')).toBeTruthy()
     expect(screen.getByText('数准')).toBeTruthy()
+    // 反馈对=绿色（ok）、反馈错=红色
+    expect(screen.getByText('应期✓').closest('span').className).toContain('text-ok')
+    expect(screen.getByText('方位✗').closest('span').className).toContain('text-red')
+    expect(screen.getByText('数准').closest('span').className).toContain('text-ok')
+    // 吉凶「吉✓」（反馈对）也是绿色
+    expect(screen.getByText('吉✓').closest('span').className).toContain('text-ok')
   })
 
-  test('未反馈：应期/方位/取数有文本显示灰色标记（不回归）', () => {
+  test('未反馈卦：应期/方位/取数有文本显示灰色标记（不回归；第二轮拍板：未反馈卦=灰，已反馈卦未覆盖维度=蓝）', () => {
     render(
       <GuashiCard
         guashi={{ ...base, jixiong: '吉', yingqi: '明日', fangwei: '东', quShu: '三' }}
@@ -92,5 +99,10 @@ describe('GuashiCard 已反馈未勾维度标记（拍板 2026-08-14）', () => 
     expect(screen.getByText('应期')).toBeTruthy()
     expect(screen.getByText('方位')).toBeTruthy()
     expect(screen.getByText('数')).toBeTruthy()
+    // 未反馈卦：标志灰色（text-muted），不是蓝色
+    for (const txt of ['吉', '应期', '方位', '数']) {
+      expect(screen.getByText(txt).closest('span').className).toContain('text-muted')
+      expect(screen.getByText(txt).closest('span').className).not.toContain('text-gold')
+    }
   })
 })

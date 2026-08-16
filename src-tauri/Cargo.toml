@@ -1,6 +1,6 @@
 [package]
 name = "liuyao-workbench"
-version = "1.3.0"
+version = "1.3.1"
 description = "六爻工作台：纯前端六爻排盘与卦例管理应用（Web / Windows / Android）"
 authors = ["Derek Zhang"]
 license = "MIT"
