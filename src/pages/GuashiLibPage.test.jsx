@@ -750,6 +750,30 @@ describe('GuashiLibPage v1.3.0 Bug3：编辑草稿惰性（切页不丢）', () 
     await screen.findByText('编辑卦例')
     expect(screen.getByPlaceholderText('占问内容').value).toBe('已保存标题')
   })
+
+  test('v1.3.1 草稿含涂鸦 → 切页返回 applyDraft 生效（草稿保留+dirty 弹窗；修复漏合并 doodle，涂鸦 UI 恢复由用户实测）', async () => {
+    await addGuashi(rec({ title: '涂鸦卦例', fankui: 'x', jixiongOk: '对' }))
+    const first = renderPage()
+    fireEvent.click(await screen.findByText('涂鸦卦例'))
+    await screen.findByText('编辑卦例')
+    // 触发 dirty（改标题）→ 写草稿；再往草稿塞涂鸦（模拟画板变化后 onDoodleChange 已写入）
+    fireEvent.change(screen.getByPlaceholderText('占问内容'), { target: { value: '涂鸦未保存' } })
+    const draftKey = Object.keys(sessionStorage).find((k) => k.startsWith('liuyao-edit-draft-'))
+    expect(draftKey).toBeTruthy()
+    const draft = JSON.parse(sessionStorage.getItem(draftKey))
+    draft.doodle = [{ type: 'pen', color: '#f5c518', width: 4, points: [{ x: 10, y: 10 }, { x: 50, y: 50 }] }]
+    draft.doodleOn = true
+    sessionStorage.setItem(draftKey, JSON.stringify(draft))
+    sessionStorage.setItem('liuyao-doodle-on', '1')
+    // 切页返回（重挂载）
+    first.unmount()
+    renderPage()
+    await screen.findByText('编辑卦例')
+    // applyDraft 生效：草稿未被删（返回 true 不走 else clearDraftFor）+ dirty=true（点返回列表弹三选框）
+    expect(sessionStorage.getItem(draftKey)).toBeTruthy()
+    fireEvent.click(screen.getByText('← 返回列表'))
+    await waitFor(() => expect(screen.getByText(/保存并返回/)).toBeTruthy())
+  })
 })
 
 describe('GuashiLibPage v1.3.0 严格反馈（strictFb）', () => {

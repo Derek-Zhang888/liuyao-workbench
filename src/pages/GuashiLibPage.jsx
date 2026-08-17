@@ -400,7 +400,17 @@ export default function GuashiLibPage() {
       if (!raw) return false
       const d = JSON.parse(raw)
       if (!d || d.id !== rec.id) return false
-      setEditing({ ...rec, ...d.fields, yongShen: d.yongShen ?? rec.yongShen })
+      // v1.3.1：草稿顶层字段（doodle/doodleOn/doodleMobile/doodleMobileOn）一并合并进 editing——
+      //   画板回填 effect 从 editing.doodle 读，若不合并则草稿涂鸦丢失（旧 bug：只恢复 fields 文本）
+      setEditing({
+        ...rec,
+        ...d.fields,
+        doodle: d.doodle ?? rec.doodle,
+        doodleOn: d.doodleOn ?? rec.doodleOn,
+        doodleMobile: d.doodleMobile ?? rec.doodleMobile,
+        doodleMobileOn: d.doodleMobileOn ?? rec.doodleMobileOn,
+        yongShen: d.yongShen ?? rec.yongShen,
+      })
       // 画板开关回填 effect 读 sessionStorage 优先 → 同步写入保持一致（数据回填 effect 取 editing 叠加值）
       try { sessionStorage.setItem(DOODLE_ON_KEY, d.doodleOn ? '1' : '0') } catch (_) { /* 静默 */ }
       try { sessionStorage.setItem(MOBILE_DOODLE_ON_KEY, d.doodleMobileOn ? '1' : '0') } catch (_) { /* 静默 */ }
