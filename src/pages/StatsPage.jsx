@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listGuashi } from '../db/guashiRepo.js'
 import { listTags } from '../db/tagsRepo.js'
+import { tagActiveStyle } from '../config/presetTags.js'
 import { computeStats, QSHU_LEVELS, DIM_FIELDS } from './stats.js'
 
 /** 统计页时间筛选惰性记忆 key（{from,to}；切页面返回保持上次筛选） */
@@ -643,17 +644,20 @@ export default function StatsPage() {
         {allTags.length === 0 && <span className="text-xs text-muted">暂无标签，可在卦例库或排盘页新增</span>}
         {allTags.map((t) => {
           const on = selTags.includes(t.name)
+          // 选中态配色：彩色标签用自身色，灰/浅色 fallback 品牌紫蓝（与 TagEditor/卦例库一致）
           return (
             <button
               key={t.id ?? t.name}
               type="button"
               onClick={() => setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))}
-              className="flex items-center gap-1.5 rounded-full border py-1 pl-3 pr-2.5 text-sm transition-colors"
-              style={{
-                borderColor: on ? t.color : 'var(--border)',
-                color: on ? t.color : 'var(--muted)',
-                background: on ? t.color + '1f' : 'transparent',
-              }}
+              className={`flex items-center gap-1.5 rounded-full border py-1 pl-3 pr-2.5 text-sm transition-colors ${
+                on ? '' : 'opacity-60 hover:opacity-90'
+              }`}
+              style={
+                on
+                  ? tagActiveStyle(t.color)
+                  : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
+              }
               title={on ? '取消筛选' : '按此标签筛选'}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />

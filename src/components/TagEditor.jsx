@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 import { listTags, addTag, deleteTag, ensurePresetTags } from '../db/tagsRepo.js'
-import { paletteColor } from '../config/presetTags.js'
+import { paletteColor, tagActiveStyle } from '../config/presetTags.js'
 import ConfirmDialog, { isNoRemind } from './ConfirmDialog.jsx'
 
 export default function TagEditor({ selected, onChange }) {
@@ -87,17 +87,18 @@ export default function TagEditor({ selected, onChange }) {
         <div className="mb-3 flex flex-wrap gap-2">
           {all.map((t) => {
             const on = selected.includes(t.name)
+            // 选中态配色：彩色标签用自身色，灰/浅色 fallback 品牌紫蓝（见 presetTags.tagActiveStyle）
             return (
               <span
                 key={t.id ?? t.name}
                 className={`flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors ${
                   on ? '' : 'opacity-60 hover:opacity-90'
                 }`}
-                style={{
-                  borderColor: on ? t.color : 'var(--border)',
-                  color: on ? t.color : 'var(--muted)',
-                  background: on ? t.color + '1f' : 'transparent',
-                }}
+                style={
+                  on
+                    ? tagActiveStyle(t.color)
+                    : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
+                }
               >
                 <button
                   type="button"

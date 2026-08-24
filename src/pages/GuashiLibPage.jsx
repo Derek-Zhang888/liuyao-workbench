@@ -21,7 +21,7 @@ import { MARKER_KEYS } from '../engine/panMarkers.js'
 import { addGuashi, getGuashi, listGuashi, softDelete, updateGuashi } from '../db/guashiRepo.js'
 import { addTag, deleteTag, ensurePresetTags, ensureTags, listTags } from '../db/tagsRepo.js'
 import { getSetting } from '../db/settingsRepo.js'
-import { paletteColor } from '../config/presetTags.js'
+import { paletteColor, tagActiveStyle } from '../config/presetTags.js'
 import { mdToGuashi } from '../md/importMd.js'
 import PanView from '../components/PanView.jsx'
 import DuanInput, { validateDuanSave } from '../components/DuanInput.jsx'
@@ -1174,15 +1174,18 @@ export default function GuashiLibPage() {
               <span className="w-10 shrink-0 text-sm text-muted">标签</span>
               {allTags.map((t) => {
                 const on = urlTags.includes(t.name)
+                // 选中态配色：彩色标签用自身色，灰/浅色 fallback 品牌紫蓝（与 TagEditor 一致）
                 return (
                   <span
                     key={t.id}
-                    className="flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors"
-                    style={{
-                      borderColor: on ? t.color : 'var(--border)',
-                      color: on ? t.color : 'var(--muted)',
-                      background: on ? t.color + '1f' : 'transparent',
-                    }}
+                    className={`flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors ${
+                      on ? '' : 'opacity-60 hover:opacity-90'
+                    }`}
+                    style={
+                      on
+                        ? tagActiveStyle(t.color)
+                        : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
+                    }
                   >
                     <button
                       type="button"
