@@ -387,7 +387,7 @@ describe('GuashiLibPage URL 标签参数（v0.2 功能 J）', () => {
 
   test('「清空筛选」按钮一键清除全部筛选（状态/对错/标签/时间/排序）', async () => {
     await addTag({ name: '占病', color: '#e74c3c' })
-    await addGuashi(rec({ title: '全部可见', tags: ['占病'], fankui: 'x', jixiong: '吉', jixiongOk: '对' }))
+    await addGuashi(rec({ title: '全部可见', tags: ['占病'], fankui: 'x', jixiong: '吉', jixiongOk: '对', createdAt: new Date(2026, 7, 15, 12).getTime() })) // createdAt 固定 8/15，避免落当前时间被 to=2026-08-31 排除（时间脆弱）
     renderPage('/lib?status=fed&tags=占病&jixiongOk=对&from=2026-08-01&to=2026-08-31&sort=created-asc')
     await screen.findByText('全部可见')
     fireEvent.click(screen.getByText('清空筛选'))
@@ -796,5 +796,80 @@ describe('GuashiLibPage v1.3.0 严格反馈（strictFb）', () => {
     renderPage('/lib?status=fed')
     await screen.findByText('已反馈')
     expect(screen.getByLabelText(/严格反馈/).disabled).toBe(true)
+  })
+})
+
+describe('GuashiLibPage 标签排除（exTags= 三态并存：未选/包含/排除）', () => {
+  /** 取标签 chip 外层（rounded-full span）；异步等 chips 渲染（挂载 effect 串行 ensurePresetTags 后才出 chips，放宽超时） */
+  const chipOf = async (name) => {
+    const inner = await screen.findByText(name, {}, { timeout: 3000 })
+    const chip = inner.closest('span[class*="rounded-full"]')
+    expect(chip).toBeTruthy()
+    return chip
+  }
+  /** 取某标签 chip 内的 ⊘ 排除按钮（accessible name 用通用文案，避免干扰 role 查询） */
+  const excBtnOf = async (name) => within(await chipOf(name)).getByTitle('排除此标签')
+  /** 取某标签 chip 主体（包含切换；未含态 title=按此标签筛选） */
+  const mainBtnOf = async (name) => within(await chipOf(name)).getByTitle('按此标签筛选')
+
+  test('exTags= 剔除命中排除标签的卦；可与 tags= 包含并存（结果=包含命中∩不含排除）', async () => {
+    await addGuashi(rec({ title: '仅工作', tags: ['工作'] }))
+    await addGuashi(rec({ title: '仅占病', tags: ['占病'] }))
+    await addGuashi(rec({ title: '占病加工作', tags: ['占病', '工作'] }))
+    await addGuashi(rec({ title: '无标签' }))
+    // 只排除工作：仅工作、占病加工作 被剔除
+    renderPage('/lib?exTags=工作')
+    await screen.findByText('仅占病')
+    expect(screen.queryByText('仅工作')).toBeNull()
+    expect(screen.queryByText('占病加工作')).toBeNull()
+    expect(screen.getByText('无标签')).toBeTruthy()
+    // 包含占病 + 排除工作 → 交集：仅占病 留下（占病加工作 带工作被剔除）
+    cleanup()
+    sessionStorage.clear()
+    renderPage('/lib?tags=占病&exTags=工作')
+    expect(await screen.findByText('仅占病')).toBeTruthy()
+    expect(screen.queryByText('占病加工作')).toBeNull()
+    expect(screen.queryByText('无标签')).toBeNull()
+  })
+
+  test('点 ⊘ 排除 → 过滤生效并写 URL exTags；再点取消恢复', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: '工作卦', tags: ['工作'] }))
+    await addGuashi(rec({ title: '占病卦', tags: ['占病'] }))
+    renderPage()
+    await screen.findByText('工作卦')
+    expect(screen.queryAllByTitle('取消排除')).toHaveLength(0)
+    // 排除「工作」→ 工作卦消失、chip 进入排除态
+    fireEvent.click(await excBtnOf('工作'))
+    await waitFor(() => expect(screen.queryByText('工作卦')).toBeNull())
+    expect(screen.getByTitle('取消排除')).toBeTruthy()
+    // URL 单一真相源：会话备份 q 已含 exTags=工作（URL 编码中文需 decode）
+    expect(decodeURIComponent(sessionStorage.getItem('liuyao-lib-filter'))).toContain('exTags=工作')
+    // 再点 ⊘ 取消排除 → 工作卦恢复
+    fireEvent.click(screen.getByTitle('取消排除'))
+    await waitFor(() => expect(screen.getByText('工作卦')).toBeTruthy())
+    expect(screen.queryAllByTitle('取消排除')).toHaveLength(0)
+  })
+
+  test('互斥：排除中的标签点主体=回收为包含；严格勾选只数包含组（排除不计）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ title: 'AB卦', tags: ['占病', '工作'] }))
+    renderPage('/lib?exTags=占病')
+    await screen.findByTitle('取消排除', {}, { timeout: 3000 })
+    expect(screen.queryByText('AB卦')).toBeNull() // 占病被排除 → 隐藏
+    // 点占病 chip 主体（改判包含）→ 回收排除、AB卦 恢复、URL 不再含 exTags
+    fireEvent.click(await mainBtnOf('占病'))
+    await waitFor(() => expect(screen.getByText('AB卦')).toBeTruthy())
+    expect(screen.queryAllByTitle('取消排除')).toHaveLength(0)
+    expect(screen.getByTitle('取消筛选')).toBeTruthy() // 占病已转包含
+    expect(sessionStorage.getItem('liuyao-lib-filter')).not.toContain('exTags=')
+    // 再把工作设为排除 → AB卦 又被剔除（不同标签包含+排除可并存）
+    fireEvent.click(await excBtnOf('工作'))
+    await waitFor(() => expect(screen.getByTitle('取消排除')).toBeTruthy())
+    expect(screen.queryByText('AB卦')).toBeNull()
+    // 严格只数包含组：当前仅 1 个包含标签 → 禁用（排除组不计入 ≥2 判定）
+    expect(screen.getByLabelText(/严格筛选/).disabled).toBe(true)
   })
 })

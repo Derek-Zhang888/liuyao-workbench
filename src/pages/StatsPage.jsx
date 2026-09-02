@@ -44,17 +44,17 @@ function readStatsTime(field) {
   return ''
 }
 
-/** 读标签+严格筛选惰性记忆（无值/解析失败返回默认：无标签、非严格） */
+/** 读标签+严格筛选惰性记忆（无值/解析失败返回默认：无标签、非严格、无排除） */
 function readStatsTags() {
   try {
     const raw = sessionStorage.getItem(STATS_TAGS_KEY)
     if (raw) {
       const v = JSON.parse(raw)
-      if (Array.isArray(v.tags)) return { tags: v.tags, strict: !!v.strict }
-      if (Array.isArray(v)) return { tags: v, strict: false } // 兼容纯数组旧格式
+      if (Array.isArray(v.tags)) return { tags: v.tags, strict: !!v.strict, exTags: Array.isArray(v.exTags) ? v.exTags : [] }
+      if (Array.isArray(v)) return { tags: v, strict: false, exTags: [] } // 兼容纯数组旧格式
     }
   } catch (_) { /* 解析失败按默认 */ }
-  return { tags: [], strict: false }
+  return { tags: [], strict: false, exTags: [] }
 }
 
 /** 读反馈结果筛选组合惰性记忆（{key: string[]} → {key: Set}；含 strictFb 严格反馈开关；
@@ -361,7 +361,8 @@ export default function StatsPage() {
   const [records, setRecords] = useState([])
   const [allTags, setAllTags] = useState([])
   const [selTags, setSelTags] = useState(() => readStatsTags().tags) // 选中的标签名（任一/全部命中；空=全部）
-  const [strictMode, setStrictMode] = useState(() => readStatsTags().strict) // 严格筛选：全部命中
+  const [strictMode, setStrictMode] = useState(() => readStatsTags().strict) // 严格筛选：全部命中（只管 selTags 包含组）
+  const [selExTags, setSelExTags] = useState(() => readStatsTags().exTags) // 排除的标签名（命中任一即剔除；天然 AND，无 strict 概念）
   const [fromDate, setFromDate] = useState(() => readStatsTime('from')) // 惰性记忆恢复
   const [toDate, setToDate] = useState(() => readStatsTime('to'))
   // v1.3.0 反馈结果筛选组合（跨维度与、同维度或）：{key: Set}
@@ -378,10 +379,10 @@ export default function StatsPage() {
   useEffect(() => {
     try { sessionStorage.setItem(STATS_TIME_KEY, JSON.stringify({ from: fromDate, to: toDate })) } catch (_) { /* 静默 */ }
   }, [fromDate, toDate])
-  // 标签+严格筛选惰性记忆（两页独立：卦例库的取消/清空不影响统计页选择）
+  // 标签+严格筛选惰性记忆（两页独立：卦例库的取消/清空不影响统计页选择；含排除标签 exTags）
   useEffect(() => {
-    try { sessionStorage.setItem(STATS_TAGS_KEY, JSON.stringify({ tags: selTags, strict: strictMode })) } catch (_) { /* 静默 */ }
-  }, [selTags, strictMode])
+    try { sessionStorage.setItem(STATS_TAGS_KEY, JSON.stringify({ tags: selTags, strict: strictMode, exTags: selExTags })) } catch (_) { /* 静默 */ }
+  }, [selTags, strictMode, selExTags])
   // 反馈结果筛选组合 + 严格反馈惰性记忆
   useEffect(() => {
     const v = {}
@@ -434,14 +435,30 @@ export default function StatsPage() {
     return out
   }, [records])
 
-  // v1.3.0 基础样本 = 标签 + 时间筛选（不含反馈筛选）；
+  // v1.3.0 基础样本 = 标签（含排除）+ 时间筛选（不含反馈筛选）；
   //   正确率趋势受标签/时间影响、不受反馈筛选影响（反馈筛选是「结果明细」筛选，趋势是「水平基线」）
+  // 标签三态切换（chip 主体=包含 inc / ⊘ 钮=排除 exc）：包含与排除互斥，同态再点=取消
+  const toggleTag = (name, mode) => {
+    const inInc = selTags.includes(name)
+    const inExc = selExTags.includes(name)
+    const turnOn = mode === 'inc' ? !inInc : !inExc
+    setSelTags((s) => (mode === 'inc'
+      ? (turnOn ? [...s.filter((x) => x !== name), name] : s.filter((x) => x !== name))
+      : s.filter((x) => x !== name))) // 切排除时从包含组回收该标签
+    setSelExTags((s) => (mode === 'exc'
+      ? (turnOn ? [...s.filter((x) => x !== name), name] : s.filter((x) => x !== name))
+      : s.filter((x) => x !== name))) // 切包含时从排除组回收该标签
+  }
   const baseList = useMemo(() => {
     let list = records
     if (selTags.length > 0) {
       list = strictMode
         ? list.filter((r) => selTags.every((t) => (r.tags ?? []).includes(t))) // 严格：全部命中
         : list.filter((r) => selTags.some((t) => (r.tags ?? []).includes(t))) // 默认：任一命中
+    }
+    // 排除标签：命中任一排除标签即剔除（排除天然 AND，与 strict 无关；可只排除不包含）
+    if (selExTags.length > 0) {
+      list = list.filter((r) => !selExTags.some((t) => (r.tags ?? []).includes(t)))
     }
     if (fromDate || toDate) {
       const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null
@@ -454,7 +471,7 @@ export default function StatsPage() {
       })
     }
     return list
-  }, [records, selTags, strictMode, fromDate, toDate])
+  }, [records, selTags, selExTags, strictMode, fromDate, toDate])
 
   // 反馈筛选后（四卡 / 正确率卡 / 饼图用）：跨维度与、同维度或（取数可多选 神准+相近）
   const filtered = useMemo(() => {
@@ -585,7 +602,8 @@ export default function StatsPage() {
     if (hasDimSel) params.set('status', 'fed') // 反馈筛选仅在已反馈视图生效 → 强制 fed
     if (hasDimSel && strictFb) params.set('strictFb', '1') // v1.3.0 严格反馈随跳转携带（与标签 strict=1 区分）
     for (const t of selTags) params.append('tags', t) // 标签用重复参数（tag 名可含逗号）
-    if (strictMode) params.set('strict', '1') // 严格筛选随跳转携带，卦例库同步应用
+    for (const t of selExTags) params.append('exTags', t) // 排除标签同样携带（卦例库同步应用）
+    if (strictMode) params.set('strict', '1') // 严格筛选随跳转携带，卦例库同步应用（只管 tags 包含组）
     if (fromDate) params.set('from', fromDate) // 时间范围随跳转携带，卦例库自动应用
     if (toDate) params.set('to', toDate)
     const s = params.toString()
@@ -638,42 +656,59 @@ export default function StatsPage() {
 
       {error && <div className="text-sm text-red">{error}</div>}
 
-      {/* 标签筛选（v0.2 功能 J：多选筛选；默认任一命中，严格筛选=全部命中；数据源=共用 tags 表） */}
+      {/* 标签筛选（多选包含/排除三态；严格筛选=全部命中只作用于包含；数据源=共用 tags 表） */}
       <section className="flex flex-wrap items-center gap-2 card rounded-xl border border-border bg-panel p-4">
         <span className="w-10 shrink-0 text-sm text-muted">标签</span>
         {allTags.length === 0 && <span className="text-xs text-muted">暂无标签，可在卦例库或排盘页新增</span>}
         {allTags.map((t) => {
-          const on = selTags.includes(t.name)
-          // 选中态配色：彩色标签用自身色，灰/浅色 fallback 品牌紫蓝（与 TagEditor/卦例库一致）
+          const inc = selTags.includes(t.name)
+          const exc = selExTags.includes(t.name)
+          // 状态配色：包含=彩色/灰标签 fallback 品牌紫蓝；排除=红系（固定，不随标签色褪色）；未选=灰
+          const chipStyle = inc
+            ? tagActiveStyle(t.color)
+            : exc
+              ? { borderColor: 'rgb(var(--red-rgb))', color: 'rgb(var(--red-rgb))', background: 'rgb(var(--red-rgb) / 0.10)' }
+              : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
           return (
-            <button
+            <span
               key={t.id ?? t.name}
-              type="button"
-              onClick={() => setSelTags((s) => (on ? s.filter((x) => x !== t.name) : [...s, t.name]))}
-              className={`flex items-center gap-1.5 rounded-full border py-1 pl-3 pr-2.5 text-sm transition-colors ${
-                on ? '' : 'opacity-60 hover:opacity-90'
+              className={`flex items-center rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors ${
+                inc || exc ? '' : 'opacity-60 hover:opacity-90'
               }`}
-              style={
-                on
-                  ? tagActiveStyle(t.color)
-                  : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
-              }
-              title={on ? '取消筛选' : '按此标签筛选'}
+              style={chipStyle}
             >
-              <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
-              {t.name}
-              {on && <span className="text-xs">✓</span>}
-            </button>
+              <button
+                type="button"
+                onClick={() => toggleTag(t.name, 'inc')}
+                className="flex items-center gap-1.5"
+                style={{ color: 'inherit' }}
+                title={inc ? '取消筛选' : '按此标签筛选'}
+              >
+                <span className={`h-2 w-2 rounded-full ${exc ? 'opacity-60' : ''}`} style={{ background: t.color }} />
+                <span className={exc ? 'line-through decoration-double decoration-2' : ''}>{t.name}</span>
+                {inc && <span className="text-xs">✓</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleTag(t.name, 'exc')}
+                className={`ml-1 rounded-full px-1 text-xs leading-none transition-colors ${exc ? '' : 'opacity-60 hover:opacity-100'}`}
+                style={{ color: 'inherit' }}
+                title={exc ? '取消排除' : '排除此标签'}
+                aria-label={exc ? '取消排除' : '排除此标签'}
+              >
+                ⊘
+              </button>
+            </span>
           )
         })}
-        {/* 严格筛选（全部命中）：<2 标签时禁用但状态保留（1 个标签时全部命中=任一命中，结果等价） */}
+        {/* 严格筛选（全部命中，只管包含组）：<2 包含标签时禁用但状态保留（1 个标签时全部命中=任一命中，结果等价） */}
         <label
           className={`ml-auto flex shrink-0 items-center gap-1.5 text-xs ${
             selTags.length < 2
               ? 'cursor-not-allowed text-muted opacity-50'
               : 'cursor-pointer text-muted hover:text-text'
           }`}
-          title={selTags.length < 2 ? '严格筛选需选择两个或以上标签' : '勾选后只统计命中全部所选标签的卦例'}
+          title={selTags.length < 2 ? '严格筛选需选择两个或以上「含」标签' : '勾选后只统计命中全部所选含标签的卦例（排除标签不受此开关影响）'}
         >
           <input
             type="checkbox"
@@ -685,10 +720,10 @@ export default function StatsPage() {
           />
           严格筛选
         </label>
-        {selTags.length > 0 && (
+        {(selTags.length > 0 || selExTags.length > 0) && (
           <button
             type="button"
-            onClick={() => { setSelTags([]); setStrictMode(false) }} // 清除标签连带清严格（拍板：一步回默认全量）
+            onClick={() => { setSelTags([]); setSelExTags([]); setStrictMode(false) }} // 清除标签连带清严格/排除（拍板：一步回默认全量）
             className="rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:text-text"
           >
             清除标签

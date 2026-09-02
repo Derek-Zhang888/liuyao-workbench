@@ -611,3 +611,67 @@ describe('StatsPage v1.3.0 视觉联动 + 正确率趋势', () => {
     await waitFor(() => expect(screen.queryByTestId('trend-tip')).toBeNull())
   })
 })
+
+describe('StatsPage 标签排除（三态并存：⊘ 排除，跟随 baseList 基线）', () => {
+  /** 取标签 chip 外层（rounded-full span）内的排除按钮（accessible name 用通用文案） */
+  const excBtnOf = (name) => {
+    const inner = screen.getByText(name)
+    const chip = inner.closest('span[class*="rounded-full"]')
+    expect(chip).toBeTruthy()
+    return within(chip).getByTitle('排除此标签')
+  }
+
+  test('只排除不包含：剔除命中排除标签的卦，其余全量统计（作用于 baseList）', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ fankui: 'x', jixiong: '吉', jixiongOk: '对', tags: ['占病'] }))
+    await addGuashi(rec({ fankui: 'x', jixiong: '凶', jixiongOk: '错', tags: ['工作'] }))
+    await addGuashi(rec({ fankui: 'x', jixiong: '吉', jixiongOk: '对' }))
+    renderPage()
+    await waitTotal(3)
+    fireEvent.click(excBtnOf('占病'))
+    await waitTotal(2) // 占病卦被剔除，工作 + 无标签保留
+    // 惰性记忆已写入 exTags
+    await waitFor(() => expect(sessionStorage.getItem('liuyao-stats-tags')).toContain('exTags'))
+  })
+
+  test('排除与包含并存；跳转携带 tags= 与 exTags= 重复参数', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addTag({ name: '工作', color: '#3498db' })
+    await addGuashi(rec({ fankui: 'x', jixiong: '吉', jixiongOk: '对', tags: ['占病'] }))
+    await addGuashi(rec({ fankui: 'x', jixiong: '吉', jixiongOk: '对', tags: ['工作'] }))
+    renderPage()
+    await waitTotal(2)
+    // 包含「工作」（主钮 role name 定位，⊘ 通用文案不干扰）
+    screen.getByRole('button', { name: /工作/ }).click()
+    // 排除「占病」（⊘）
+    fireEvent.click(excBtnOf('占病'))
+    await waitFor(() => expect(screen.getByTitle('取消排除')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('取消筛选')).toBeTruthy())
+    // 已反馈卡跳转 → 同时带 tags=工作 & exTags=占病 & status=fed
+    screen.getByRole('button', { name: /已反馈/ }).click()
+    const loc = decodeURIComponent((await screen.findByTestId('lib-loc')).textContent)
+    expect(loc).toContain('status=fed')
+    expect(loc).toContain('tags=工作')
+    expect(loc).toContain('exTags=占病')
+  })
+
+  test('排除选择持久化并随重挂载恢复（含 exTags）；清除标签一步回全量', async () => {
+    await addTag({ name: '占病', color: '#e74c3c' })
+    await addGuashi(rec({ fankui: 'x', jixiong: '吉', jixiongOk: '对', tags: ['占病'] }))
+    const first = renderPage()
+    await waitTotal(1)
+    fireEvent.click(excBtnOf('占病'))
+    await waitFor(() => expect(screen.getByTitle('取消排除')).toBeTruthy())
+    await waitTotal(0) // 排除后样本为 0
+    // 重挂载：记忆恢复排除态
+    first.unmount()
+    renderPage()
+    expect(await screen.findByTitle('取消排除')).toBeTruthy()
+    await waitTotal(0)
+    // 「清除标签」连带清排除 → 恢复全量
+    screen.getByRole('button', { name: /清除标签/ }).click()
+    await waitTotal(1)
+    expect(screen.queryAllByTitle('取消排除')).toHaveLength(0)
+  })
+})

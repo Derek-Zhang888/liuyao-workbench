@@ -142,6 +142,9 @@ export default function GuashiLibPage() {
   const strictMode = searchParams.get('strict') === '1'
   // URL 标签参数（v0.2 功能 J）：统计页跳转带 tags= 重复参数（tag 名可含逗号，故不用逗号拼接）
   const urlTags = useMemo(() => searchParams.getAll('tags').filter(Boolean), [searchParams])
+  // URL 排除标签参数（标签排除功能）：exTags= 重复参数，命中任一排除标签的卦例被剔除
+  //   （排除天然 AND=全部排除，无 strict 之分；strict=1 只管 tags 包含组）
+  const urlExTags = useMemo(() => searchParams.getAll('exTags').filter(Boolean), [searchParams])
   // v0.10 改进建8 #3 排序：URL sort= 参数（created-desc 默认 / created-asc / updated-desc / updated-asc / tag-match 最符合标签）
   // tag-match 无区分度时（严格筛选开启 或 标签不足 2 个）→ 归一化为 created-desc（仅解析层，不改 URL）
   const sortMode = (() => {
@@ -189,6 +192,26 @@ export default function GuashiLibPage() {
     } else {
       next.delete('strict')
     }
+    setSearchParams(next, { replace: true })
+  }
+  /** 标签三态切换（chip 主体=包含 inc / ⊘ 钮=排除 exc；三态并存功能）：
+   *  包含与排除互斥：切任一态自动回收另一态（同标签不可能又含又排），同态再点=取消；
+   *  exTags 不计入「最符合标签」命中数（tag-match 只依赖包含标签） */
+  const toggleTag = (name, mode) => {
+    const next = new URLSearchParams(searchParams)
+    const inInc = urlTags.includes(name)
+    const inExc = urlExTags.includes(name)
+    const turnOn = mode === 'inc' ? !inInc : !inExc
+    next.delete('tags')
+    for (const t of urlTags) if (t !== name) next.append('tags', t)
+    next.delete('exTags')
+    for (const t of urlExTags) if (t !== name) next.append('exTags', t)
+    if (turnOn) {
+      if (mode === 'inc') next.append('tags', name)
+      else next.append('exTags', name)
+    }
+    // 「最符合标签」排序只在包含标签 ≥2 时有区分度 → 不足时切回创建时间新→旧
+    if (next.getAll('tags').length < 2 && (next.get('sort') || 'created-desc') === 'tag-match') next.set('sort', 'created-desc')
     setSearchParams(next, { replace: true })
   }
   /** v0.10 改进建8 #2：主筛选单选组切换。选中一个自动取消其他（互斥）；
@@ -502,7 +525,14 @@ export default function GuashiLibPage() {
   const doDeleteTag = async (tag) => {
     try {
       const res = await deleteTag(tag.id)
-      setUrlTags(urlTags.filter((n) => n !== tag.name))
+      // 从 URL 包含（tags=）与排除（exTags=）两组同步移除（单次 commit，避免连续 setSearchParams 互相覆盖）
+      const next = new URLSearchParams(searchParams)
+      next.delete('tags')
+      for (const t of urlTags) if (t !== tag.name) next.append('tags', t)
+      next.delete('exTags')
+      for (const t of urlExTags) if (t !== tag.name) next.append('exTags', t)
+      if (next.getAll('tags').length < 2 && (next.get('sort') || 'created-desc') === 'tag-match') next.set('sort', 'created-desc')
+      setSearchParams(next, { replace: true })
       setMsg(`已删除标签「${tag.name}」${res.removedFromGuashi ? `，并从 ${res.removedFromGuashi} 条卦例中移除该标签` : '（无卦例使用）'}`)
       setError('')
       refreshTags()
@@ -522,6 +552,7 @@ export default function GuashiLibPage() {
 
   /** 筛选后的展示列表（v0.10 建议3 #7 + 建议4 #5 #8 + 建议5 #4 + 改进建8 #2 #3 + 追加修复）；
  *  - tag 多选：默认「任一命中」；严格筛选（strict=1）时须「全部命中」；用户排序优先，标签命中数作为次级排序
+ *  - 排除标签（exTags=）：命中任一排除标签的卦例直接剔除（排除天然 AND，与 strict 无关；可与包含并存）
  *  - v0.10 改进建8 #2 新口径互斥单组：
  *      待占断 = jixiong 未选（'' 或缺失）；未反馈 = jixiong 非空 且 status 未反馈；
  *      已反馈 = status 已反馈；三者互斥（选中一个自动取消其他）
@@ -538,6 +569,11 @@ export default function GuashiLibPage() {
         if (strictMode) {
           if (!urlTags.every((t) => own.includes(t))) return false // 严格：全部命中
         } else if (!urlTags.some((t) => own.includes(t))) return false // 默认：任一命中
+      }
+      // 排除标签（exTags=）：命中任一排除标签即剔除（排除天然 AND；过滤顺序无关，放在包含判断后便于阅读）
+      if (urlExTags.length > 0) {
+        const own = r.tags ?? []
+        if (urlExTags.some((t) => own.includes(t))) return false
       }
       if (statusMode === 'pending' && (hasDuanContent(r) || !!((r.fankui ?? '').trim()))) return false // 待占断 = 五者全空 且 fankui 空（已反馈不落入）
       if (statusMode === 'unfed' && (hasDuanContent(r) ? !!((r.fankui ?? '').trim()) : true)) return false // 待反馈 = 五者任一非空 且 fankui 空
@@ -603,7 +639,7 @@ export default function GuashiLibPage() {
       return [...list].sort((a, b) => cmp(a, b) || hitCount(b) - hitCount(a))
     }
     return [...list].sort(cmp)
-  }, [records, urlTags, strictMode, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, quShuFbFilter, strictFbMode, jixiongFilter, yingqiHasFilter, fangweiHasFilter, quShuHasFilter, sortMode, fromDate, toDate])
+  }, [records, urlTags, urlExTags, strictMode, statusMode, keyword, jixiongOkFilter, yingqiOkFilter, fangweiOkFilter, quShuFbFilter, strictFbMode, jixiongFilter, yingqiHasFilter, fangweiHasFilter, quShuHasFilter, sortMode, fromDate, toDate])
 
   const selectedRecords = useMemo(
     () => records.filter((r) => selectedIds.includes(r.id)),
@@ -1169,36 +1205,47 @@ export default function GuashiLibPage() {
                 清空筛选
               </button>
             </div>
-            {/* 标签行（v0.10 建议5 #5：移到筛选行下面）；标签走 URL 单一真相源，点选=增删 URL tags= 参数 */}
+            {/* 标签行（v0.10 建议5 #5：移到筛选行下面）；标签走 URL 单一真相源；
+                三态并存：主体点=包含（tags= 增删，保持 v1.3.2 视觉），⊘ 点=排除（exTags= 增删，红系删除线） */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-10 shrink-0 text-sm text-muted">标签</span>
               {allTags.map((t) => {
-                const on = urlTags.includes(t.name)
-                // 选中态配色：彩色标签用自身色，灰/浅色 fallback 品牌紫蓝（与 TagEditor 一致）
+                const inc = urlTags.includes(t.name)
+                const exc = urlExTags.includes(t.name)
+                // 状态配色：包含=彩色/灰标签 fallback 品牌紫蓝；排除=红系（固定，不随标签色褪色）；未选=灰
+                const chipStyle = inc
+                  ? tagActiveStyle(t.color)
+                  : exc
+                    ? { borderColor: 'rgb(var(--red-rgb))', color: 'rgb(var(--red-rgb))', background: 'rgb(var(--red-rgb) / 0.10)' }
+                    : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
                 return (
                   <span
                     key={t.id}
-                    className={`flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors ${
-                      on ? '' : 'opacity-60 hover:opacity-90'
+                    className={`flex items-center rounded-full border py-1 pl-3 pr-1.5 text-sm transition-colors ${
+                      inc || exc ? '' : 'opacity-60 hover:opacity-90'
                     }`}
-                    style={
-                      on
-                        ? tagActiveStyle(t.color)
-                        : { borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent' }
-                    }
+                    style={chipStyle}
                   >
                     <button
                       type="button"
-                      onClick={() =>
-                        setUrlTags(on ? urlTags.filter((x) => x !== t.name) : [...urlTags, t.name])
-                      }
+                      onClick={() => toggleTag(t.name, 'inc')}
                       className="flex items-center gap-1.5"
                       style={{ color: 'inherit' }}
-                      title={on ? '取消筛选' : '按此标签筛选'}
+                      title={inc ? '取消筛选' : '按此标签筛选'}
                     >
-                      <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
-                      {t.name}
-                      {on && <span className="text-xs">✓</span>}
+                      <span className={`h-2 w-2 rounded-full ${exc ? 'opacity-60' : ''}`} style={{ background: t.color }} />
+                      <span className={exc ? 'line-through decoration-double decoration-2' : ''}>{t.name}</span>
+                      {inc && <span className="text-xs">✓</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleTag(t.name, 'exc')}
+                      className={`ml-1 rounded-full px-1 text-xs leading-none transition-colors ${exc ? '' : 'opacity-60 hover:opacity-100'}`}
+                      style={{ color: 'inherit' }}
+                      title={exc ? '取消排除' : '排除此标签'}
+                      aria-label={exc ? '取消排除' : '排除此标签'}
+                    >
+                      ⊘
                     </button>
                     <button
                       type="button"
@@ -1219,7 +1266,7 @@ export default function GuashiLibPage() {
                     ? 'cursor-not-allowed text-muted opacity-50'
                     : 'cursor-pointer text-muted hover:text-text'
                 }`}
-                title={urlTags.length < 2 ? '严格筛选需选择两个或以上标签' : '勾选后只显示命中全部所选标签的卦例'}
+                title={urlTags.length < 2 ? '严格筛选需选择两个或以上「含」标签' : '勾选后只显示命中全部所选含标签的卦例（排除标签不受此开关影响）'}
               >
                 <input
                   type="checkbox"
